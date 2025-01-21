@@ -29,6 +29,10 @@ def get_or_create_session():
         global_session = assistant.create_session()
     return global_session
 
+@app.route('/')
+def home():
+    return "Welcome to the RAGFlow chatbot service!"
+
 @app.route('/chat', methods=['POST'])
 def chat():
     user_query = request.json.get('query')
