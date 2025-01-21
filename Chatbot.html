@@ -164,6 +164,14 @@
     const sectionTitle = document.getElementById('sectionTitle');
     const tabButtons = document.querySelectorAll('.tab-button');
 
+    // Add chat session tracking
+    let currentChatId = null;
+    const activeSessions = {
+      'main': null,
+      'for_against': null,
+      'bare_acts': null
+    };
+
     // Add initial bot message to all sections
     sections.forEach(section => {
       addMessage("How can I help you today?", true, section);
@@ -198,9 +206,12 @@
       // Update current section and title
       currentSection = section;
       sectionTitle.textContent = sectionTitles[section];
+      currentChatId = activeSessions[section];
       
-      // Load history for the selected section
-      loadChatHistory(section);
+      // Only load history if new chat was clicked or app was restarted
+      if (!activeSessions[section]) {
+        loadChatHistory(section);
+      }
     }
 
     async function handleSubmit(e) {
@@ -208,7 +219,6 @@
       const message = messageInput.value.trim();
       if (!message) return;
 
-      // Add user message to current section
       addMessage(message, false, currentSection);
       messageInput.value = '';
       
@@ -222,7 +232,8 @@
           },
           body: JSON.stringify({ 
             query: message,
-            section: currentSection
+            section: currentSection,
+            chat_id: currentChatId
           }),
         });
 
@@ -231,8 +242,11 @@
         const data = await response.json();
         addMessage(data.answer, true, currentSection);
         
-        // Reload chat history for current section
-        loadChatHistory(currentSection);
+        // Update chat ID if this is a new chat
+        if (!currentChatId) {
+          currentChatId = data.chat_id;
+          activeSessions[currentSection] = currentChatId;
+        }
       } catch (error) {
         console.error('Error:', error);
         addMessage("Sorry, I encountered an error processing your request.", true, currentSection);
@@ -245,6 +259,8 @@
       try {
         await fetch(`${API_BASE_URL}history/${section}/clear`, { method: 'POST' });
         messagesContainers[section].innerHTML = '';
+        currentChatId = null;
+        activeSessions[section] = null;
         loadChatHistory(section);
         addMessage("How can I help you today?", true, section);
       } catch (error) {
@@ -274,27 +290,41 @@
       }
     }
 
-    function updateChatHistory(history, section) {
+    function updateChatHistory(groupedHistory, section) {
       const historySection = document.createElement('div');
-      historySection.className = 'mb-4';
-      historySection.innerHTML = `
-        <h3 class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">${sectionTitles[section]}</h3>
-        <div class="space-y-1">
-          ${history.map(item => `
-            <div class="history-item text-sm text-gray-700 hover:bg-gray-100 rounded-lg px-3 py-2 cursor-pointer transition-colors">
-              ${item.query.substring(0, 30)}${item.query.length > 30 ? '...' : ''}
+      historySection.className = 'space-y-4';
+
+      // Create sections for different time periods
+      const periods = [
+        { key: 'today', label: 'Today' },
+        { key: 'yesterday', label: 'Yesterday' },
+        { key: 'seven_days', label: '7 Days' },
+        { key: 'thirty_days', label: '30 Days' }
+      ];
+
+      periods.forEach(period => {
+        const chats = groupedHistory[period.key];
+        if (chats && chats.length > 0) {
+          const periodSection = document.createElement('div');
+          periodSection.innerHTML = `
+            <h3 class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">${period.label}</h3>
+            <div class="space-y-1">
+              ${chats.map(chat => `
+                <div class="history-item text-sm text-gray-700 hover:bg-gray-100 rounded-lg px-3 py-2 cursor-pointer transition-colors">
+                  ${chat.title}
+                </div>
+              `).join('')}
             </div>
-          `).join('')}
-        </div>
-      `;
-      
-      // Remove existing history for this section and add the new one
-      const existingSection = chatHistory.querySelector(`[data-section="${section}"]`);
-      if (existingSection) {
-        existingSection.remove();
+          `;
+          historySection.appendChild(periodSection);
+        }
+      });
+
+      // Update history for current section only
+      chatHistory.innerHTML = '';
+      if (historySection.children.length > 0) {
+        chatHistory.appendChild(historySection);
       }
-      historySection.dataset.section = section;
-      chatHistory.appendChild(historySection);
     }
 
     function addMessage(text, isBot, section) {
