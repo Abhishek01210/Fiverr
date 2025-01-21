@@ -82,5 +82,9 @@ def clear_history(section):
         return jsonify({'message': f'Query history cleared for {section}'}), 200
     return jsonify({'error': 'Invalid section'}), 400
 
+@app.route("/")
+def home():
+    return "Hello, this is the chatbot!"
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
