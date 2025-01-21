@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chatbot</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    .messages-container {
+      scrollbar-width: thin;
+      scrollbar-color: #CBD5E0 transparent;
+    }
+    .messages-container::-webkit-scrollbar {
+      width: 6px;
+    }
+    .messages-container::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .messages-container::-webkit-scrollbar-thumb {
+      background-color: #CBD5E0;
+      border-radius: 3px;
+    }
+    .message-content ul {
+      list-style-type: none;
+      padding-left: 1rem;
+    }
+    .message-content ul li {
+      position: relative;
+      margin: 0.5rem 0;
+    }
+    .message-content ul li::before {
+      content: "•";
+      position: absolute;
+      left: -1rem;
+      color: currentColor;
+    }
+    .message-content strong {
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="flex h-screen bg-gray-100">
+    <!-- Sidebar -->
+    <div class="w-64 bg-white border-r border-gray-200 flex flex-col">
+      <div class="p-4">
+        <button id="newChatBtn" class="w-full flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg py-2 px-4 hover:bg-blue-700 transition-colors">
+          <i data-lucide="message-circle" class="w-5 h-5"></i>
+          <span>New chat</span>
+        </button>
+      </div>
+
+      <!-- Search Section -->
+      <div class="px-4">
+        <div class="relative">
+          <input
+            type="text"
+            id="searchInput"
+            placeholder="Search messages"
+            class="w-full pl-9 pr-4 py-2 bg-gray-100 border border-transparent rounded-lg text-sm focus:outline-none focus:border-gray-300 transition-colors"
+          />
+          <i data-lucide="search" class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2"></i>
+        </div>
+      </div>
+      
+      <!-- Chat History -->
+      <div id="chatHistory" class="px-4 mt-4 flex-1 overflow-y-auto">
+        <!-- Chat history will be populated here -->
+      </div>
+    </div>
+
+    <!-- Main Chat Area -->
+    <div class="flex-1 flex flex-col">
+      <!-- Chat Header -->
+      <div class="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-white">
+        <h1 class="text-lg font-semibold text-gray-800">AI Assistant</h1>
+        <div id="statusIndicator" class="hidden">
+          <div class="animate-pulse flex items-center">
+            <div class="h-2 w-2 bg-green-500 rounded-full mr-2"></div>
+            <span class="text-sm text-gray-500">Processing...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-4 messages-container" id="messagesContainer">
+        <!-- Messages will be inserted here -->
+      </div>
+
+      <!-- Input Area -->
+      <div class="border-t border-gray-200 p-4 bg-white">
+        <form id="messageForm" class="flex gap-2">
+          <input
+            type="text"
+            id="messageInput"
+            placeholder="Type your message..."
+            class="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500"
+          />
+          <button
+            type="submit"
+            class="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors flex items-center gap-2"
+          >
+            <i data-lucide="send" class="w-5 h-5"></i>
+            <span>Send</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // API endpoints
+    const API_BASE_URL = 'http://localhost:5000';
+    const CHAT_ENDPOINT = `${API_BASE_URL}/chat`;
+    const HISTORY_ENDPOINT = `${API_BASE_URL}/history`;
+    const CLEAR_HISTORY_ENDPOINT = `${API_BASE_URL}/history/clear`;
+
+    // DOM elements
+    const messagesContainer = document.getElementById('messagesContainer');
+    const messageForm = document.getElementById('messageForm');
+    const messageInput = document.getElementById('messageInput');
+    const newChatBtn = document.getElementById('newChatBtn');
+    const chatHistory = document.getElementById('chatHistory');
+    const searchInput = document.getElementById('searchInput');
+    const statusIndicator = document.getElementById('statusIndicator');
+
+    // Add initial bot message
+    addMessage("How can I help you today?", true);
+
+    // Load chat history on page load
+    loadChatHistory();
+
+    // Event listeners
+    messageForm.addEventListener('submit', handleSubmit);
+    newChatBtn.addEventListener('click', handleNewChat);
+    searchInput.addEventListener('input', handleSearch);
+
+    async function handleSubmit(e) {
+      e.preventDefault();
+      const message = messageInput.value.trim();
+      if (!message) return;
+
+      // Add user message
+      addMessage(message, false);
+      messageInput.value = '';
+      
+      // Show processing indicator
+      statusIndicator.classList.remove('hidden');
+
+      try {
+        const response = await fetch(CHAT_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: message }),
+        });
+
+        if (!response.ok) throw new Error('Network response was not ok');
+        
+        const data = await response.json();
+        addMessage(data.answer, true);
+        
+        // Reload chat history
+        loadChatHistory();
+      } catch (error) {
+        console.error('Error:', error);
+        addMessage("Sorry, I encountered an error processing your request.", true);
+      } finally {
+        statusIndicator.classList.add('hidden');
+      }
+    }
+
+    async function handleNewChat() {
+      try {
+        await fetch(CLEAR_HISTORY_ENDPOINT, { method: 'POST' });
+        messagesContainer.innerHTML = '';
+        chatHistory.innerHTML = '';
+        addMessage("How can I help you today?", true);
+      } catch (error) {
+        console.error('Error clearing chat history:', error);
+      }
+    }
+
+    function handleSearch(e) {
+      const searchTerm = e.target.value.toLowerCase();
+      const historyItems = chatHistory.getElementsByClassName('history-item');
+      
+      Array.from(historyItems).forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(searchTerm) ? 'block' : 'none';
+      });
+    }
+
+    async function loadChatHistory() {
+      try {
+        const response = await fetch(HISTORY_ENDPOINT);
+        if (!response.ok) throw new Error('Network response was not ok');
+        
+        const history = await response.json();
+        updateChatHistory(history);
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      }
+    }
+
+    function updateChatHistory(history) {
+      chatHistory.innerHTML = '';
+      
+      // Group history by date
+      const today = new Date();
+      const sevenDaysAgo = new Date(today - 7 * 24 * 60 * 60 * 1000);
+      const thirtyDaysAgo = new Date(today - 30 * 24 * 60 * 60 * 1000);
+
+      const recentHistory = history.filter(item => new Date(item.timestamp) > sevenDaysAgo);
+      const olderHistory = history.filter(item => {
+        const date = new Date(item.timestamp);
+        return date <= sevenDaysAgo && date > thirtyDaysAgo;
+      });
+
+      if (recentHistory.length > 0) {
+        addHistorySection('7 Days', recentHistory);
+      }
+
+      if (olderHistory.length > 0) {
+        addHistorySection('30 Days', olderHistory);
+      }
+    }
+
+    function addHistorySection(title, items) {
+      const section = document.createElement('div');
+      section.innerHTML = `
+        <h3 class="text-xs font-medium text-gray-500 uppercase tracking-wider mt-4 mb-2">${title}</h3>
+        <div class="space-y-1">
+          ${items.map(item => `
+            <div class="history-item text-sm text-gray-700 hover:bg-gray-100 rounded-lg px-3 py-2 cursor-pointer transition-colors">
+              ${item.query.substring(0, 30)}${item.query.length > 30 ? '...' : ''}
+            </div>
+          `).join('')}
+        </div>
+      `;
+      chatHistory.appendChild(section);
+    }
+
+    function addMessage(text, isBot) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `flex ${isBot ? 'justify-start' : 'justify-end'}`;
+      
+      const messageContent = document.createElement('div');
+      messageContent.className = `max-w-[80%] rounded-lg px-4 py-2 ${
+        isBot ? 'bg-white text-gray-800' : 'bg-blue-600 text-white'
+      } message-content`;
+
+      if (isBot) {
+        // Parse markdown for bot messages
+        messageContent.innerHTML = marked.parse(text);
+      } else {
+        messageContent.textContent = text;
+      }
+      
+      messageDiv.appendChild(messageContent);
+      messagesContainer.appendChild(messageDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+  </script>
+</body>
+</html>
