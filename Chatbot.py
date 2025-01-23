@@ -71,9 +71,9 @@ def get_deepseek_response(user_query, section):
             {"role": "user", "content": user_query}
         ],
         "model": "deepseek-chat",
-        "max_tokens": 2048,
-        "temperature": 0.7,
-        "stream": False
+        "max_tokens": 8192,
+        "temperature": 0.3,
+        "stream": True
     }
     
     headers = {
