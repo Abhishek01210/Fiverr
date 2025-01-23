@@ -177,25 +177,18 @@ const handleSubmit = async (e: React.FormEvent) => {
           } else if (content.startsWith('[ERROR]')) {
             throw new Error(content.replace('[ERROR] ', ''));
           } else {
-            // Process normal content
-            accumulatedResponse += content;
-            
-            // Update messages with accumulated response
+            // Append new content incrementally
+            botResponseRef.current += content;
             setMessages(prev => {
-              const sectionMessages = [...prev[currentSection]];
-              const lastMessage = sectionMessages[sectionMessages.length - 1];
-              
-              if (lastMessage && lastMessage.isBot) {
-                sectionMessages[sectionMessages.length - 1] = {
-                  text: accumulatedResponse,
+              const messages = [...prev[currentSection]];
+              const lastMessage = messages[messages.length - 1];
+              if (lastMessage?.isBot) {
+                messages[messages.length - 1] = {
+                  text: botResponseRef.current,
                   isBot: true
                 };
               }
-              
-              return {
-                ...prev,
-                [currentSection]: sectionMessages
-              };
+              return { ...prev, [currentSection]: messages };
             });
           }
         }
