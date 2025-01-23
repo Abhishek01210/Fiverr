@@ -79,20 +79,17 @@ def get_deepseek_stream(user_query, section):
             )
 
             for chunk in response:
-                try:
-                    response = client.chat.completions.create(/* ... */)
-                    for chunk in response:
-                        if chunk.choices and chunk.choices[0].delta.content:
-                            content = chunk.choices[0].delta.content
-                            # Send actual content as SSE
-                            yield f"data: {content}\n\n"
-                    # Send [DONE] once at the end
-                    yield "data: [DONE]\n\n"
-                except Exception as e:
-                    # Send error as SSE
-                    yield f"data: [ERROR] {str(e)}\n\n"
-                    yield "data: [DONE]\n\n"
-            return stream
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    # Send actual content as SSE
+                    yield f"data: {content}\n\n"
+            # Send [DONE] once at the end
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            # Send error as SSE
+            yield f"data: [ERROR] {str(e)}\n\n"
+            yield "data: [DONE]\n\n"
+    return stream
 
 @app.route('/chat', methods=['POST'])
 def chat():
