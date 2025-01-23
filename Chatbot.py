@@ -51,7 +51,8 @@ def generate_chat_title(queries):
         
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Error generating title: {e}")
+        logging.error(f"Error generating title: {e}")
+        logging.error("Stacktrace: \n%s", traceback.format_exc())  # Capture full traceback
         return "New Chat"
 
 def get_chat_id():
@@ -85,41 +86,45 @@ def get_deepseek_stream(user_query, section):
                     yield f"data: {chunk.choices[0].delta['content']}\n\n"
 
         except Exception as e:
+            logging.error(f"Error streaming response: {e}")
+            logging.error("Stacktrace: \n%s", traceback.format_exc())
             yield f"data: [Error]: {str(e)}\n\n"
 
     return stream
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    data = request.json
-    user_query = data.get('query')
-    section = data.get('section', 'main')
-    chat_id = data.get('chat_id')
-    
-    if not user_query:
-        return jsonify({'error': 'No query provided'}), 400
-
-    # Create new chat entry if needed
-    if not chat_id:
-        chat_id = get_chat_id()
-        chat_titles[section][chat_id] = {
-            'queries': [],
-            'title': None,
-            'timestamp': datetime.now().isoformat()
-        }
-
-    # Store query
-    chat_titles[section][chat_id]['queries'].append(user_query)
-    
-    # Generate title after second query
-    if len(chat_titles[section][chat_id]['queries']) == 2:
-        title = generate_chat_title(chat_titles[section][chat_id]['queries'])
-        chat_titles[section][chat_id]['title'] = title
-
     try:
+        data = request.json
+        user_query = data.get('query')
+        section = data.get('section', 'main')
+        chat_id = data.get('chat_id')
+
+        # Check if query is provided
+        if not user_query:
+            logging.warning("No query provided")
+            return jsonify({'error': 'No query provided'}), 400
+
+        # Create new chat entry if needed
+        if not chat_id:
+            chat_id = get_chat_id()
+            chat_titles[section][chat_id] = {
+                'queries': [],
+                'title': None,
+                'timestamp': datetime.now().isoformat()
+            }
+
+        # Store query
+        chat_titles[section][chat_id]['queries'].append(user_query)
+
+        # Generate title after second query
+        if len(chat_titles[section][chat_id]['queries']) == 2:
+            title = generate_chat_title(chat_titles[section][chat_id]['queries'])
+            chat_titles[section][chat_id]['title'] = title
+
         # Get the stream function
         response_stream = get_deepseek_stream(user_query, section)()
-        
+
         # Store the query for history (optional)
         query_history[section].append({
             'chat_id': chat_id,
@@ -127,10 +132,10 @@ def chat():
             'response': "streaming",  # Placeholder
             'timestamp': datetime.now().isoformat()
         })
-    
+
         # Return streaming response
         return Response(response_stream, content_type='text/event-stream')
-    
+
     except Exception as e:
         logging.error(f"Error processing the chat request: {str(e)}")
         logging.error("Stacktrace: \n%s", traceback.format_exc())  # Capture full traceback
@@ -183,11 +188,18 @@ def get_history(section):
 
 @app.route('/history/<section>/clear', methods=['POST'])
 def clear_history(section):
-    if section in query_history:
-        query_history[section].clear()
-        chat_titles[section].clear()
-        return jsonify({'message': f'History cleared for {section}'}), 200
-    return jsonify({'error': 'Invalid section'}), 400
+    try:
+        if section in query_history:
+            query_history[section].clear()
+            chat_titles[section].clear()
+            return jsonify({'message': f'History cleared for {section}'}), 200
+        logging.warning(f"Invalid section for clearing: {section}")
+        return jsonify({'error': 'Invalid section'}), 400
+
+    except Exception as e:
+        logging.error(f"Error clearing history: {str(e)}")
+        logging.error("Stacktrace: \n%s", traceback.format_exc())
+        return jsonify({'error': 'Unable to clear history'}), 500
 
 @app.route("/")
 def home():
