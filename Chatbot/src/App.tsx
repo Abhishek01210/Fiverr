@@ -95,51 +95,56 @@ function App() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMessage.trim()) return;
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!inputMessage.trim()) return;
 
-    const newMessage = { text: inputMessage, isBot: false };
-    setMessages(prev => ({
-      ...prev,
-      [currentSection]: [...prev[currentSection], newMessage]
-    }));
-    setInputMessage('');
-    setIsProcessing(true);
+  const newMessage = { text: inputMessage, isBot: false };
+  setMessages(prev => ({
+    ...prev,
+    [currentSection]: [...prev[currentSection], newMessage]
+  }));
+  setInputMessage('');
+  setIsProcessing(true);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: inputMessage,
-          section: currentSection,
-          chat_id: currentChatId
-        })
-      });
+  try {
+    const response = await fetch(`${API_BASE_URL}chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: inputMessage,
+        section: currentSection,
+        chat_id: currentChatId
+      })
+    });
 
-      if (!response.ok) throw new Error('Network response was not ok');
+    if (!response.ok) throw new Error('Network response was not ok');
+    
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let botResponse = '';
+
+    if (!reader) throw new Error('Response body is null');
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
       
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let botResponse = '';
+      let eventEndIndex;
+      while ((eventEndIndex = buffer.indexOf('\n\n')) !== -1) {
+        const event = buffer.slice(0, eventEndIndex);
+        buffer = buffer.slice(eventEndIndex + 2);
 
-      if (!reader) throw new Error('Response body is null');
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
+        const lines = event.split('\n');
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(5));
+              const data = JSON.parse(line.slice(6));
               
               if (data.chat_id) {
-                // Final message with chat_id
                 if (!currentChatId) {
                   setCurrentChatId(data.chat_id);
                   setActiveSessions(prev => ({
@@ -148,12 +153,16 @@ function App() {
                   }));
                 }
               } else if (data.content) {
-                // Content chunk
                 botResponse += data.content;
                 setMessages(prev => {
                   const sectionMessages = [...prev[currentSection]];
-                  if (sectionMessages[sectionMessages.length - 1].isBot) {
-                    sectionMessages[sectionMessages.length - 1].text = botResponse;
+                  const lastMessage = sectionMessages[sectionMessages.length - 1];
+                  
+                  if (lastMessage.isBot) {
+                    sectionMessages[sectionMessages.length - 1] = {
+                      ...lastMessage,
+                      text: botResponse
+                    };
                   } else {
                     sectionMessages.push({ text: botResponse, isBot: true });
                   }
@@ -166,18 +175,21 @@ function App() {
           }
         }
       }
-
-    } catch (error) {
-      console.error('Error:', error);
-      setMessages(prev => ({
-        ...prev,
-        [currentSection]: [...prev[currentSection], { text: "Sorry, I encountered an error processing your request.", isBot: true }]
-      }));
-    } finally {
-      setIsProcessing(false);
     }
-  };
-
+  } catch (error) {
+    console.error('Error:', error);
+    setMessages(prev => ({
+      ...prev,
+      [currentSection]: [...prev[currentSection], { 
+        text: "Sorry, I encountered an error processing your request.", 
+        isBot: true 
+      }]
+    }));
+  } finally {
+    setIsProcessing(false);
+  }
+};
+  
   const handleNewChat = async (section: Section) => {
     try {
       await fetch(`${API_BASE_URL}history/${section}/clear`, { method: 'POST' });
