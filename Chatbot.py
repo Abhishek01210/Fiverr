@@ -99,7 +99,7 @@ def chat():
         # Check if query is provided
         if not user_query:
             logging.warning("No query provided")
-            def error_stream():  # <-- Return error as SSE
+            def error_stream():  # Return SSE instead of JSON
                 yield "data: [ERROR] No query provided\n\n"
                 yield "data: [DONE]\n\n"
             return Response(error_stream(), content_type='text/event-stream')
