@@ -59,7 +59,6 @@ def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
 def get_deepseek_stream(user_query, section):
-    # System messages for each section
     system_messages = {
         'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
         'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
@@ -68,7 +67,6 @@ def get_deepseek_stream(user_query, section):
 
     def stream():
         try:
-            # Request streaming response from OpenAI API
             response = client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[
@@ -77,27 +75,28 @@ def get_deepseek_stream(user_query, section):
                 ],
                 max_tokens=1024,
                 temperature=0.7,
-                stream=True  # Enable streaming
+                stream=True
             )
 
-            # Stream chunks of the response
             for chunk in response:
                 try:
-                    # More robust checking of chunk content
                     if chunk.choices:
                         delta = chunk.choices[0].delta
-                        content = getattr(delta, 'content', None)
+                        content = delta.content if hasattr(delta, 'content') and delta.content else None
                         
                         if content:
-                            yield f"data: {content}\n\n"
+                            # Properly escape the content to avoid issues
+                            escaped_content = content.replace('\n', ' ').replace('\r', '')
+                            yield f"data: {escaped_content}\n\n"
                 except Exception as chunk_error:
                     logging.error(f"Error processing chunk: {chunk_error}")
                     logging.error(f"Problematic chunk: {chunk}")
 
         except Exception as e:
-            logging.error(f"Streaming error details: {type(e)}, {str(e)}")
+            error_message = f"Streaming error: {type(e)}, {str(e)}"
+            logging.error(error_message)
             logging.error("Full traceback: %s", traceback.format_exc())
-            yield f"data: [Streaming Error]: {str(e)}\n\n"
+            yield f"data: {error_message}\n\n"
 
     return stream
 
