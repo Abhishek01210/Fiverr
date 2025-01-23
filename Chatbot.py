@@ -71,8 +71,8 @@ def get_deepseek_response(user_query, section):
             {"role": "user", "content": user_query}
         ],
         "model": "deepseek-chat",
-        "max_tokens": 2048,
-        "temperature": 0.7,
+        "max_tokens": 8192,
+        "temperature": 0.3,
         "stream": False
     }
     
@@ -92,7 +92,7 @@ def chat():
     user_query = data.get('query')
     section = data.get('section', 'main')
     chat_id = data.get('chat_id')
-    
+
     if not user_query:
         return jsonify({'error': 'No query provided'}), 400
 
@@ -107,27 +107,34 @@ def chat():
 
     # Store query
     chat_titles[section][chat_id]['queries'].append(user_query)
-    
-    # Generate title after second query
-    if len(chat_titles[section][chat_id]['queries']) == 2:
-        title = generate_chat_title(chat_titles[section][chat_id]['queries'])
-        chat_titles[section][chat_id]['title'] = title
 
     try:
-        response_content = get_deepseek_response(user_query, section)
+        def generate():
+            full_response = ""
+            for content in stream_deepseek_response(user_query, section):
+                full_response += content
+                # Send each chunk immediately with proper SSE format
+                yield f"data: {json.dumps({'content': content})}\n\n"
+            
+            # Store in history after complete response
+            query_history[section].append({
+                'chat_id': chat_id,
+                'query': user_query,
+                'response': full_response,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            # Send the chat_id in the final message
+            yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
 
-        # Store in history
-        query_history[section].append({
-            'chat_id': chat_id,
-            'query': user_query,
-            'response': response_content,
-            'timestamp': datetime.now().isoformat()
-        })
-
-        return jsonify({
-            'answer': response_content,
-            'chat_id': chat_id
-        })
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'  # Disable buffering
+            }
+        )
 
     except Exception as e:
         print(f"Error: {e}")
