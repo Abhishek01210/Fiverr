@@ -73,36 +73,43 @@ def stream_deepseek_response(user_query, section):
         'bare_acts': "You are a legal expert..."
     }
     
-    payload = {
-        "messages": [
-            {"role": "system", "content": system_messages[section]},
-            {"role": "user", "content": user_query}
-        ],
-        "model": "deepseek-chat",
-        "max_tokens": 8192,
-        "temperature": 0.3,
-        "stream": True  # ← Must be True for streaming
-    }
-    
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
-    }
-    
-    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
-    
-    for line in response.iter_lines():
-        if line:
-            decoded_line = line.decode('utf-8')
-            if decoded_line.startswith('data: '):
-                try:
-                    data = json.loads(decoded_line[6:])  # Remove 'data: ' prefix
-                    if data.get('choices')[0].get('finish_reason') is None:
-                        content = data['choices'][0]['delta'].get('content', '')
-                        yield content
-                except json.JSONDecodeError:
-                    continue
+    try:
+        payload = {
+            "messages": [
+                {"role": "system", "content": system_messages[section]},
+                {"role": "user", "content": user_query}
+            ],
+            "model": "deepseek-chat",
+            "temperature": 0.3,
+            "stream": True
+        }
+        
+        headers = {
+            'Authorization': f'Bearer {DEEPSEEK_API_KEY}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
+        
+        if response.status_code != 200:
+            yield json.dumps({'error': f"API Error {response.status_code}: {response.text}"})
+            return
 
+        for line in response.iter_lines():
+            if line:
+                decoded_line = line.decode('utf-8')
+                if decoded_line.startswith('data: '):
+                    try:
+                        data = json.loads(decoded_line[6:])  # Remove 'data: ' prefix
+                        if data.get('choices')[0].get('finish_reason') is None:
+                            content = data['choices'][0]['delta'].get('content', '')
+                            if content:
+                                yield content
+                    except Exception as e:
+                        yield json.dumps({'error': f"Parsing error: {str(e)}"})
+    
+    except Exception as e:
+        yield json.dumps({'error': f"Connection error: {str(e)}"})
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.json
