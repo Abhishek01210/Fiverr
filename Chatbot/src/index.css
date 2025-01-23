@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.messages-container {
+  scrollbar-width: thin;
+  scrollbar-color: #CBD5E0 transparent;
+}
+
+.messages-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background-color: #CBD5E0;
+  border-radius: 3px;
+}
+
+.message-content ul {
+  list-style-type: none;
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+}
+
+.message-content ul li {
+  position: relative;
+  margin: 0.5rem 0;
+  line-height: 1.5;
+}
+
+.message-content ul li::before {
+  content: "•";
+  position: absolute;
+  left: -1rem;
+  color: currentColor;
+}
+
+.message-content strong {
+  font-weight: 600;
+}
+
+.message-content p {
+  margin: 0.75rem 0;
+  line-height: 1.6;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+}
+
+.tab-active {
+  background-color: #EBF5FF;
+  border-left: 4px solid #3B82F6;
+}
