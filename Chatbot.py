@@ -3,12 +3,18 @@ import requests
 from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
 
 DEEPSEEK_API_KEY = "sk-802fe5996aa441199db50ff2c951a261"
-DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+
+# Initialize OpenAI client with DeepSeek base URL
+client = OpenAI(
+    api_key=DEEPSEEK_API_KEY,
+    base_url="https://api.deepseek.com"
+)
 
 # Separate storage for query history and chat titles for each section
 query_history = {
@@ -30,26 +36,18 @@ def generate_chat_title(queries):
     try:
         prompt = f"Create a short, descriptive title (max 5 words) for a chat session based on these queries:\n1. {queries[0]}\n2. {queries[1]}"
         
-        payload = {
-            "messages": [
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
                 {"role": "system", "content": "You are a helpful assistant that creates concise chat titles."},
                 {"role": "user", "content": prompt}
             ],
-            "model": "deepseek-chat",
-            "max_tokens": 20,
-            "temperature": 0.7,
-            "stream": False
-        }
+            max_tokens=20,
+            temperature=0.7,
+            stream=False
+        )
         
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
-        }
-        
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-        response_data = response.json()
-        return response_data['choices'][0]['message']['content'].strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Error generating title: {e}")
         return "New Chat"
@@ -65,26 +63,18 @@ def get_deepseek_response(user_query, section):
         'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
     }
     
-    payload = {
-        "messages": [
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[
             {"role": "system", "content": system_messages[section]},
             {"role": "user", "content": user_query}
         ],
-        "model": "deepseek-chat",
-        "max_tokens": 8192,
-        "temperature": 0.3,
-        "stream": True
-    }
+        max_tokens=2048,
+        temperature=0.7,
+        stream=False
+    )
     
-    headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
-    }
-    
-    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-    response_data = response.json()
-    return response_data['choices'][0]['message']['content']
+    return response.choices[0].message.content
 
 @app.route('/chat', methods=['POST'])
 def chat():
