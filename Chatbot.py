@@ -79,14 +79,11 @@ def get_deepseek_stream(user_query, section):
             )
 
             for chunk in response:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    # Send actual content as SSE
-                    yield f"data: {content}\n\n"
-            # Send [DONE] once at the end
-            yield "data: [DONE]\n\n"
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield f"data: {content}\n\n"  # Send actual content
+            yield "data: [DONE]\n\n"  # Terminate stream ONCE at the end
         except Exception as e:
-            # Send error as SSE
             yield f"data: [ERROR] {str(e)}\n\n"
             yield "data: [DONE]\n\n"
     return stream
@@ -137,8 +134,11 @@ def chat():
 
     except Exception as e:
         logging.error(f"Error processing the chat request: {str(e)}")
-        logging.error("Stacktrace: \n%s", traceback.format_exc())  # Capture full traceback
-        return jsonify({'error': 'Unable to process the request'}), 500
+        # Return error as SSE stream
+        def error_stream():
+            yield f"data: [ERROR] {str(e)}\n\n"
+            yield "data: [DONE]\n\n"
+        return Response(error_stream(), content_type='text/event-stream')
 
 @app.route('/history/<section>', methods=['GET'])
 def get_history(section):
