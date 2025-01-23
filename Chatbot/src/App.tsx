@@ -140,9 +140,9 @@ const handleSubmit = async (e: React.FormEvent) => {
     });
 
     if (!response.ok) {
-      // Read JSON error message from the backend
-      const errorData = await response.json();
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      // Handle SSE errors (DO NOT use response.json())
+      const errorText = await response.text();
+      throw new Error(`HTTP error: ${response.status} - ${errorText}`);
     }
 
     // Create a temporary bot message
