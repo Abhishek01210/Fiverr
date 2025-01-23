@@ -1,12 +1,15 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 import requests
 from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
 from openai import OpenAI
 import logging
+import traceback
 
 logging.basicConfig(level=logging.DEBUG)
+logging.error(f"Error: {str(e)}")
+logging.error(traceback.format_exc())
 
 # Load environment variables
 load_dotenv()
