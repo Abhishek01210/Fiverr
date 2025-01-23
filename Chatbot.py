@@ -26,6 +26,14 @@ chat_titles = {
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
+
 def generate_chat_title(queries):
     try:
         prompt = f"Create a short, descriptive title (max 5 words) for a chat session based on these queries:\n1. {queries[0]}\n2. {queries[1]}"
@@ -57,12 +65,11 @@ def generate_chat_title(queries):
 def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
-def get_deepseek_response(user_query, section):
-    # Customize system message based on section
+def stream_deepseek_response(user_query, section):
     system_messages = {
-        'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
-        'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
-        'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
+        'main': "You are a helpful legal assistant...",
+        'for_against': "You are a legal analyst...",
+        'bare_acts': "You are a legal expert..."
     }
     
     payload = {
@@ -73,18 +80,27 @@ def get_deepseek_response(user_query, section):
         "model": "deepseek-chat",
         "max_tokens": 8192,
         "temperature": 0.3,
-        "stream": False
+        "stream": True  # ← Must be True for streaming
     }
     
     headers = {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
         'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
     }
     
-    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-    response_data = response.json()
-    return response_data['choices'][0]['message']['content']
+    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
+    
+    for line in response.iter_lines():
+        if line:
+            decoded_line = line.decode('utf-8')
+            if decoded_line.startswith('data: '):
+                try:
+                    data = json.loads(decoded_line[6:])  # Remove 'data: ' prefix
+                    if data.get('choices')[0].get('finish_reason') is None:
+                        content = data['choices'][0]['delta'].get('content', '')
+                        yield content
+                except json.JSONDecodeError:
+                    continue
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -96,7 +112,6 @@ def chat():
     if not user_query:
         return jsonify({'error': 'No query provided'}), 400
 
-    # Create new chat entry if needed
     if not chat_id:
         chat_id = get_chat_id()
         chat_titles[section][chat_id] = {
@@ -105,18 +120,15 @@ def chat():
             'timestamp': datetime.now().isoformat()
         }
 
-    # Store query
     chat_titles[section][chat_id]['queries'].append(user_query)
 
-    try:
-        def generate():
-            full_response = ""
+    def generate():
+        full_response = ""
+        try:
             for content in stream_deepseek_response(user_query, section):
                 full_response += content
-                # Send each chunk immediately with proper SSE format
                 yield f"data: {json.dumps({'content': content})}\n\n"
             
-            # Store in history after complete response
             query_history[section].append({
                 'chat_id': chat_id,
                 'query': user_query,
@@ -124,21 +136,20 @@ def chat():
                 'timestamp': datetime.now().isoformat()
             })
             
-            # Send the chat_id in the final message
             yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
+        
+        except Exception as e:
+            print(f"Streaming error: {str(e)}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-        return Response(
-            generate(),
-            mimetype='text/event-stream',
-            headers={
-                'Cache-Control': 'no-cache',
-                'X-Accel-Buffering': 'no'  # Disable buffering
-            }
-        )
-
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({'error': 'Unable to process the request'}), 500
+    return Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+    )
 
 @app.route('/history/<section>', methods=['GET'])
 def get_history(section):
