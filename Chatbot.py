@@ -75,9 +75,9 @@ def get_deepseek_stream(user_query, section):
                     {"role": "system", "content": system_messages[section]},
                     {"role": "user", "content": user_query},
                 ],
-                max_tokens=1024,
-                temperature=0.7,
-                stream=True  # Enable streaming
+                max_tokens=8192,
+                temperature=0.3,
+                stream=False  # Enable streaming
             )
 
             # Stream chunks of the response
