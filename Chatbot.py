@@ -80,22 +80,18 @@ def get_deepseek_stream(user_query, section):
 
             for chunk in response:
                 try:
-                    if chunk.choices:
-                        delta = chunk.choices[0].delta
-                        content = delta.content if hasattr(delta, 'content') and delta.content else None
-                        
+                    if chunk.choices and chunk.choices[0].delta:
+                        content = chunk.choices[0].delta.content
                         if content:
-                            # Properly escape the content to avoid issues
-                            escaped_content = content.replace('\n', ' ').replace('\r', '')
-                            yield f"data: {escaped_content}\n\n"
+                            # Safely escape and clean content
+                            safe_content = content.replace('\n', ' ').replace('\r', '')
+                            yield f"data: {safe_content}\n\n"
                 except Exception as chunk_error:
-                    logging.error(f"Error processing chunk: {chunk_error}")
-                    logging.error(f"Problematic chunk: {chunk}")
-
+                    logging.error(f"Chunk processing error: {chunk_error}")
+                    
         except Exception as e:
-            error_message = f"Streaming error: {type(e)}, {str(e)}"
+            error_message = f"Streaming error: {str(e)}"
             logging.error(error_message)
-            logging.error("Full traceback: %s", traceback.format_exc())
             yield f"data: {error_message}\n\n"
 
     return stream
