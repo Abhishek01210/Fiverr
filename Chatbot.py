@@ -123,23 +123,28 @@ def chat():
 
     chat_titles[section][chat_id]['queries'].append(user_query)
 
-    def generate():
-        full_response = ""
-        try:
-            for content in stream_deepseek_response(user_query, section):
-                full_response += content
-                yield f"data: {json.dumps({'content': content})}\n\n"
+    try:  # <- Start of try block
+        def generate():
+            full_response = ""
+            try:
+                for content in stream_deepseek_response(user_query, section):
+                    full_response += content
+                    yield f"data: {json.dumps({'content': content})}\n\n"
+                
+                query_history[section].append({
+                    'chat_id': chat_id,
+                    'query': user_query,
+                    'response': full_response,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+                yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
             
-            query_history[section].append({
-                'chat_id': chat_id,
-                'query': user_query,
-                'response': full_response,
-                'timestamp': datetime.now().isoformat()
-            })
-            
-            yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
-        
-        return Response(  # Now properly imported
+            except Exception as e:
+                print(f"Stream error: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        return Response(  # <- Proper indentation under try
             generate(),
             mimetype='text/event-stream',
             headers={
@@ -147,11 +152,10 @@ def chat():
                 'X-Accel-Buffering': 'no'
             }
         )
-    
-    except Exception as e:
-        print(f"Error in chat endpoint: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
+    except Exception as e:  # <- Matching except for outer try
+        print(f"Chat endpoint error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 @app.route('/history/<section>', methods=['GET'])
 def get_history(section):
     if section not in query_history:
