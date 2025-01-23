@@ -55,26 +55,37 @@ def generate_chat_title(queries):
 def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
-def get_deepseek_response(user_query, section):
-    # Customize system message based on section
+def get_deepseek_stream(user_query, section):
+    # System messages for each section
     system_messages = {
         'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
         'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
         'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
     }
-    
-    response = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=[
-            {"role": "system", "content": system_messages[section]},
-            {"role": "user", "content": user_query}
-        ],
-        max_tokens=8192,
-        temperature=0.3,
-        stream=True
-    )
-    
-    return response.choices[0].message.content
+
+    def stream():
+        try:
+            # Request streaming response from OpenAI API
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": system_messages[section]},
+                    {"role": "user", "content": user_query},
+                ],
+                max_tokens=1024,
+                temperature=0.7,
+                stream=True  # Enable streaming
+            )
+
+            # Stream chunks of the response
+            for chunk in response:
+                if "choices" in chunk and chunk.choices[0].delta.get("content"):
+                    yield f"data: {chunk.choices[0].delta['content']}\n\n"
+
+        except Exception as e:
+            yield f"data: [Error]: {str(e)}\n\n"
+
+    return stream
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -104,20 +115,19 @@ def chat():
         chat_titles[section][chat_id]['title'] = title
 
     try:
-        response_content = get_deepseek_response(user_query, section)
+        # Stream response
+        response_stream = get_deepseek_stream(user_query, section)
 
-        # Store in history
+        # Store the query for history (optional)
         query_history[section].append({
             'chat_id': chat_id,
             'query': user_query,
-            'response': response_content,
+            'response': "streaming",  # Placeholder
             'timestamp': datetime.now().isoformat()
         })
 
-        return jsonify({
-            'answer': response_content,
-            'chat_id': chat_id
-        })
+        # Return streaming response
+        return Response(response_stream, content_type='text/event-stream')
 
     except Exception as e:
         print(f"Error: {e}")
