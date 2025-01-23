@@ -160,24 +160,36 @@ function App() {
               for (const line of lines) {
                 if (line.startsWith('data: ')) {
                   const content = line.slice(6); // Remove 'data: ' prefix
-                  botResponseRef.current += content;
-                  setMessages(prev => {
-                    const sectionMessages = [...prev[currentSection]];
-                    const lastMessage = sectionMessages[sectionMessages.length - 1];
-                    
-                    if (lastMessage && lastMessage.isBot) {
-                      sectionMessages[sectionMessages.length - 1] = {
-                        text: botResponseRef.current,
-                        isBot: true
+                  
+                  if (content && content !== '[Streaming Error]:') {
+                    botResponseRef.current += content;
+                    setMessages(prev => {
+                      const sectionMessages = [...prev[currentSection]];
+                      const lastMessage = sectionMessages[sectionMessages.length - 1];
+                      
+                      if (lastMessage && lastMessage.isBot) {
+                        sectionMessages[sectionMessages.length - 1] = {
+                          text: botResponseRef.current,
+                          isBot: true
+                        };
+                      }
+                      
+                      return {
+                        ...prev,
+                        [currentSection]: sectionMessages
                       };
-                    }
-                    
-                    return {
+                    });
+                    scrollToBottom();
+                  } else if (content.includes('Streaming Error')) {
+                    // Handle error scenario
+                    setMessages(prev => ({
                       ...prev,
-                      [currentSection]: sectionMessages
-                    };
-                  });
-                  scrollToBottom();
+                      [currentSection]: [...prev[currentSection], { 
+                        text: `Sorry, an error occurred: ${content}`, 
+                        isBot: true 
+                      }]
+                    }));
+                  }
                 }
               }
             }
