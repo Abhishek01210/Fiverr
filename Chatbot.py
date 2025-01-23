@@ -3,6 +3,7 @@ import requests
 from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
+import json
 
 # Load environment variables
 load_dotenv()
@@ -138,18 +139,18 @@ def chat():
             
             yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
         
-        except Exception as e:
-            print(f"Streaming error: {str(e)}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-    return Response(
-        generate(),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
-        }
-    )
+        return Response(  # Now properly imported
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+    
+    except Exception as e:
+        print(f"Error in chat endpoint: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/history/<section>', methods=['GET'])
 def get_history(section):
