@@ -2,16 +2,13 @@ from flask import Flask, request, jsonify
 import requests
 from dotenv import load_dotenv
 from flask_cors import CORS
-from ragflow_sdk import RAGFlow
 from datetime import datetime, timedelta
-from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
 
-RAGFLOW_API_URL = "https://ragflow-ogno0-u30628.vm.elestio.app"
-RAGFLOW_API_KEY = "ragflow-Q1NmJhMTcyZDViNTExZWY5ZTY3MDI0Mm"
 DEEPSEEK_API_KEY = "sk-802fe5996aa441199db50ff2c951a261"
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
 # Separate storage for query history and chat titles for each section
 query_history = {
@@ -29,49 +26,65 @@ chat_titles = {
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Initialize DeepSeek client
-deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com/v1")
-
-# Initialize RAGFlow objects for each section
-rag_object = RAGFlow(api_key=RAGFLOW_API_KEY, base_url=RAGFLOW_API_URL)
-chat_assistants = {
-    'main': rag_object.list_chats(name="Main Chat")[0],
-    'for_against': rag_object.list_chats(name="For/Against")[0],
-    'bare_acts': rag_object.list_chats(name="Bare Acts")[0]
-}
-
-# Store sessions for each section
-global_sessions = {
-    'main': None,
-    'for_against': None,
-    'bare_acts': None
-}
-
-def get_or_create_session(section):
-    global global_sessions
-    if global_sessions[section] is None:
-        global_sessions[section] = chat_assistants[section].create_session()
-    return global_sessions[section]
-
 def generate_chat_title(queries):
     try:
         prompt = f"Create a short, descriptive title (max 5 words) for a chat session based on these queries:\n1. {queries[0]}\n2. {queries[1]}"
-        response = deepseek_client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
+        
+        payload = {
+            "messages": [
                 {"role": "system", "content": "You are a helpful assistant that creates concise chat titles."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=20,
-            temperature=0.7
-        )
-        return response.choices[0].message.content.strip()
+            "model": "deepseek-chat",
+            "max_tokens": 20,
+            "temperature": 0.7,
+            "stream": False
+        }
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
+        }
+        
+        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
+        response_data = response.json()
+        return response_data['choices'][0]['message']['content'].strip()
     except Exception as e:
         print(f"Error generating title: {e}")
         return "New Chat"
 
 def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
+
+def get_deepseek_response(user_query, section):
+    # Customize system message based on section
+    system_messages = {
+        'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
+        'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
+        'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
+    }
+    
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_messages[section]},
+            {"role": "user", "content": user_query}
+        ],
+        "model": "deepseek-chat",
+        "max_tokens": 2048,
+        "temperature": 0.7,
+        "stream": False
+    }
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
+    }
+    
+    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
+    response_data = response.json()
+    return response_data['choices'][0]['message']['content']
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -101,12 +114,7 @@ def chat():
         chat_titles[section][chat_id]['title'] = title
 
     try:
-        session = get_or_create_session(section)
-        cont = ""
-        response_content = ""
-        for ans in session.ask(user_query, stream=True):
-            response_content += ans.content[len(cont):]
-            cont = ans.content
+        response_content = get_deepseek_response(user_query, section)
 
         # Store in history
         query_history[section].append({
@@ -172,11 +180,9 @@ def get_history(section):
 
 @app.route('/history/<section>/clear', methods=['POST'])
 def clear_history(section):
-    global global_sessions
     if section in query_history:
         query_history[section].clear()
         chat_titles[section].clear()
-        global_sessions[section] = None
         return jsonify({'message': f'History cleared for {section}'}), 200
     return jsonify({'error': 'Invalid section'}), 400
 
