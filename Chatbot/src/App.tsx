@@ -2,12 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Scale, BookOpen, MessageCircle, Search, Send } from 'lucide-react';
 import { marked } from 'marked';
 
-// Configure marked to preserve line breaks
-marked.setOptions({
-  breaks: true,
-  gfm: true
-});
-
 const API_BASE_URL = 'https://chatbot-u30628.vm.elestio.app/';
 
 interface Message {
@@ -73,6 +67,7 @@ function App() {
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const botResponseRef = useRef<string>('');
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -95,183 +90,95 @@ function App() {
     }
   };
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!inputMessage.trim()) return;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputMessage.trim()) return;
 
-  const newMessage = { text: inputMessage, isBot: false };
-  setMessages(prev => ({
-    ...prev,
-    [currentSection]: [...prev[currentSection], newMessage]
-  }));
-  setInputMessage('');
-  setIsProcessing(true);
-
-  try {
-    const response = await fetch(`${API_BASE_URL}chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: inputMessage,
-        section: currentSection,
-        chat_id: currentChatId
-      })
-    });
-
-    if (!response.ok) throw new Error('Network response was not ok');
-    
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let botResponse = '';
-
-    if (!reader) throw new Error('Response body is null');
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      
-      let eventEndIndex;
-      while ((eventEndIndex = buffer.indexOf('\n\n')) !== -1) {
-        const event = buffer.slice(0, eventEndIndex);
-        buffer = buffer.slice(eventEndIndex + 2);
-
-        const lines = event.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.chat_id) {
-                if (!currentChatId) {
-                  setCurrentChatId(data.chat_id);
-                  setActiveSessions(prev => ({
-                    ...prev,
-                    [currentSection]: data.chat_id
-                  }));
-                }
-              } else if (data.content) {
-                botResponse += data.content;
-                setMessages(prev => {
-                  const sectionMessages = [...prev[currentSection]];
-                  const lastMessage = sectionMessages[sectionMessages.length - 1];
-                  
-                  if (lastMessage.isBot) {
-                    sectionMessages[sectionMessages.length - 1] = {
-                      ...lastMessage,
-                      text: botResponse
-                    };
-                  } else {
-                    sectionMessages.push({ text: botResponse, isBot: true });
-                  }
-                  return { ...prev, [currentSection]: sectionMessages };
-                });
-              }
-            } catch (e) {
-              console.error('Error parsing SSE data:', e);
-            }
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error:', error);
+    const newMessage = { text: inputMessage, isBot: false };
     setMessages(prev => ({
       ...prev,
-      [currentSection]: [...prev[currentSection], { 
-        text: "Sorry, I encountered an error processing your request.", 
-        isBot: true 
-      }]
+      [currentSection]: [...prev[currentSection], newMessage]
     }));
-  } finally {
-    setIsProcessing(false);
-  }
-};
-  
-  const handleNewChat = async (section: Section) => {
+    setInputMessage('');
+    setIsProcessing(true);
+    botResponseRef.current = '';
+
     try {
-      await fetch(`${API_BASE_URL}history/${section}/clear`, { method: 'POST' });
+      const response = await fetch(`${API_BASE_URL}chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: inputMessage,
+          section: currentSection,
+          chat_id: currentChatId
+        })
+      });
+
+      if (!response.ok) throw new Error('Network response was not ok');
+      
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader?.read() || {};
+        
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        
+        lines.forEach(line => {
+          try {
+            const jsonData = JSON.parse(line);
+            
+            if (jsonData.content) {
+              botResponseRef.current += jsonData.content;
+              setMessages(prev => {
+                const messages = [...prev[currentSection]];
+                const lastMessageIndex = messages.length - 1;
+                
+                if (lastMessageIndex >= 0 && messages[lastMessageIndex].isBot) {
+                  messages[lastMessageIndex] = { 
+                    text: botResponseRef.current, 
+                    isBot: true 
+                  };
+                } else {
+                  messages.push({ 
+                    text: botResponseRef.current, 
+                    isBot: true 
+                  });
+                }
+                
+                return {
+                  ...prev,
+                  [currentSection]: messages
+                };
+              });
+            }
+            
+            if (jsonData.chat_id) {
+              setCurrentChatId(jsonData.chat_id);
+              setActiveSessions(prev => ({
+                ...prev,
+                [currentSection]: jsonData.chat_id
+              }));
+            }
+          } catch (parseError) {
+            console.error('Error parsing chunk:', parseError);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error:', error);
       setMessages(prev => ({
         ...prev,
-        [section]: [{ text: "How can I help you today?", isBot: true }]
+        [currentSection]: [...prev[currentSection], { text: "Sorry, I encountered an error processing your request.", isBot: true }]
       }));
-      setCurrentChatId(null);
-      setActiveSessions(prev => ({ ...prev, [section]: null }));
-      loadChatHistory(section);
-    } catch (error) {
-      console.error('Error clearing chat history:', error);
+    } finally {
+      setIsProcessing(false);
     }
   };
-
-  const loadChatHistory = async (section: Section) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}history/${section}`);
-      if (!response.ok) throw new Error('Network response was not ok');
-      const data = await response.json();
-      setHistory(prev => ({ ...prev, [section]: data }));
-    } catch (error) {
-      console.error('Error loading chat history:', error);
-    }
-  };
-
-  const renderMessage = (message: Message) => {
-    let formattedText = message.text;
-    
-    if (message.isBot) {
-      // Add proper spacing between sections with numbers
-      formattedText = formattedText.replace(/(\d+\.)/g, '\n\n$1');
-      // Add space after colons
-      formattedText = formattedText.replace(/:/g, ': ');
-      // Add proper spacing for lists
-      formattedText = formattedText.replace(/([.!?])\s*([A-Z])/g, '$1\n\n$2');
-      // Ensure proper line breaks between sections
-      formattedText = formattedText.replace(/\n{3,}/g, '\n\n');
-    }
-
-    return (
-      <div className={`flex ${message.isBot ? 'justify-start' : 'justify-end'}`}>
-        <div
-          className={`max-w-[80%] rounded-lg px-4 py-2 message-content ${
-            message.isBot ? 'bg-white text-gray-800' : 'bg-blue-600 text-white'
-          } whitespace-pre-wrap`}
-          dangerouslySetInnerHTML={{
-            __html: message.isBot ? marked(formattedText) : formattedText
-          }}
-        />
-      </div>
-    );
-  };
-
-  const renderHistorySection = (period: keyof ChatHistory, label: string) => {
-    const chats = history[currentSection][period];
-    if (!chats || chats.length === 0) return null;
-
-    return (
-      <div key={period}>
-        <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-          {label}
-        </h3>
-        <div className="space-y-1">
-          {chats
-            .filter(chat => 
-              chat.title.toLowerCase().includes(searchTerm.toLowerCase())
-            )
-            .map((chat, index) => (
-              <div
-                key={index}
-                className="history-item text-sm text-gray-700 hover:bg-gray-100 rounded-lg px-3 py-2 cursor-pointer transition-colors"
-              >
-                {chat.title}
-              </div>
-            ))}
-        </div>
-      </div>
-    );
-  };
-
-  return (
+  
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
