@@ -99,7 +99,10 @@ def chat():
         # Check if query is provided
         if not user_query:
             logging.warning("No query provided")
-            return jsonify({'error': 'No query provided'}), 400
+            def error_stream():  # <-- Return error as SSE
+                yield "data: [ERROR] No query provided\n\n"
+                yield "data: [DONE]\n\n"
+            return Response(error_stream(), content_type='text/event-stream')
 
         # Create new chat entry if needed
         if not chat_id:
@@ -133,8 +136,7 @@ def chat():
         return Response(response_stream, content_type='text/event-stream')
 
     except Exception as e:
-        logging.error(f"Error processing the chat request: {str(e)}")
-        # Return error as SSE stream
+        # Existing error handling (correct)
         def error_stream():
             yield f"data: [ERROR] {str(e)}\n\n"
             yield "data: [DONE]\n\n"
