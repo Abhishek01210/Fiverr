@@ -150,37 +150,36 @@ function App() {
         [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
       }));
 
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) break;
-        
-        const chunk = new TextDecoder().decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim());
-        
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            
-            if (data.content) {
-              botResponseRef.current += data.content;
-              setMessages(prev => {
-                const sectionMessages = [...prev[currentSection]];
-                const lastMessage = sectionMessages[sectionMessages.length - 1];
-                
-                if (lastMessage && lastMessage.isBot) {
-                  sectionMessages[sectionMessages.length - 1] = {
-                    text: botResponseRef.current,
-                    isBot: true
-                  };
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              
+              const chunk = new TextDecoder().decode(value);
+              const lines = chunk.split('\n').filter(line => line.trim());
+              
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const content = line.slice(6); // Remove 'data: ' prefix
+                  botResponseRef.current += content;
+                  setMessages(prev => {
+                    const sectionMessages = [...prev[currentSection]];
+                    const lastMessage = sectionMessages[sectionMessages.length - 1];
+                    
+                    if (lastMessage && lastMessage.isBot) {
+                      sectionMessages[sectionMessages.length - 1] = {
+                        text: botResponseRef.current,
+                        isBot: true
+                      };
+                    }
+                    
+                    return {
+                      ...prev,
+                      [currentSection]: sectionMessages
+                    };
+                  });
+                  scrollToBottom();
                 }
-                
-                return {
-                  ...prev,
-                  [currentSection]: sectionMessages
-                };
-              });
-              scrollToBottom();
+              }
             }
             
             if (data.chat_id) {
