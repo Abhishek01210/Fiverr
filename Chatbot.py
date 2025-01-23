@@ -68,6 +68,7 @@ def get_deepseek_stream(user_query, section):
 
     def stream():
         try:
+            # Request streaming response from OpenAI API
             response = client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[
@@ -76,19 +77,22 @@ def get_deepseek_stream(user_query, section):
                 ],
                 max_tokens=1024,
                 temperature=0.7,
-                stream=True
+                stream=True  # Enable streaming
             )
 
             # Stream chunks of the response
             for chunk in response:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.get("content"):
-                    yield f"data: {chunk.choices[0].delta['content']}\n\n"
-                
-                # Add error handling for unexpected chunk structures
-                elif not chunk.choices:
-                    logging.warning(f"Chunk received without choices: {chunk}")
-                elif not chunk.choices[0].delta:
-                    logging.warning(f"Chunk received without delta: {chunk}")
+                try:
+                    # More robust checking of chunk content
+                    if chunk.choices:
+                        delta = chunk.choices[0].delta
+                        content = getattr(delta, 'content', None)
+                        
+                        if content:
+                            yield f"data: {content}\n\n"
+                except Exception as chunk_error:
+                    logging.error(f"Error processing chunk: {chunk_error}")
+                    logging.error(f"Problematic chunk: {chunk}")
 
         except Exception as e:
             logging.error(f"Streaming error details: {type(e)}, {str(e)}")
