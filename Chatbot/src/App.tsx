@@ -172,7 +172,12 @@ const handleSubmit = async (e: React.FormEvent) => {
         if (line.startsWith('data: ')) {
           const content = line.slice(6).trim();
           
-          if (content) {
+          if (content === '[DONE]') {
+            break; // End of stream
+          } else if (content.startsWith('[ERROR]')) {
+            throw new Error(content.replace('[ERROR] ', ''));
+          } else {
+            // Process normal content
             accumulatedResponse += content;
             
             // Update messages with accumulated response
