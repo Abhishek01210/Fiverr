@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
 from openai import OpenAI
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 # Load environment variables
 load_dotenv()
