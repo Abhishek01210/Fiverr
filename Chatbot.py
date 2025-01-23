@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from openai import OpenAI
 import logging
 
+logging.basicConfig(level=logging.DEBUG)
+
 # Load environment variables
 load_dotenv()
 
@@ -32,8 +34,6 @@ chat_titles = {
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
-
-logging.basicConfig(level=logging.DEBUG)
 
 def generate_chat_title(queries):
     try:
