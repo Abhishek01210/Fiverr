@@ -155,13 +155,13 @@ function App() {
               if (done) break;
               
               const chunk = new TextDecoder().decode(value);
-              const lines = chunk.split('\n').filter(line => line.trim());
+              const lines = chunk.split('\n');
               
               for (const line of lines) {
                 if (line.startsWith('data: ')) {
-                  const content = line.slice(6); // Remove 'data: ' prefix
+                  const content = line.slice(6).trim(); // Remove 'data: ' prefix and trim whitespace
                   
-                  if (content && content !== '[Streaming Error]:') {
+                  if (content) {
                     botResponseRef.current += content;
                     setMessages(prev => {
                       const sectionMessages = [...prev[currentSection]];
@@ -180,15 +180,6 @@ function App() {
                       };
                     });
                     scrollToBottom();
-                  } else if (content.includes('Streaming Error')) {
-                    // Handle error scenario
-                    setMessages(prev => ({
-                      ...prev,
-                      [currentSection]: [...prev[currentSection], { 
-                        text: `Sorry, an error occurred: ${content}`, 
-                        isBot: true 
-                      }]
-                    }));
                   }
                 }
               }
