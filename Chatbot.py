@@ -7,10 +7,6 @@ from openai import OpenAI
 import logging
 import traceback
 
-logging.basicConfig(level=logging.DEBUG)
-logging.error(f"Error: {str(e)}")
-logging.error(traceback.format_exc())
-
 # Load environment variables
 load_dotenv()
 
@@ -136,7 +132,8 @@ def chat():
         return Response(response_stream, content_type='text/event-stream')
 
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error processing the chat request: {str(e)}")
+        logging.error("Stacktrace: \n%s", traceback.format_exc())  # Capture full traceback
         return jsonify({'error': 'Unable to process the request'}), 500
 
 @app.route('/history/<section>', methods=['GET'])
