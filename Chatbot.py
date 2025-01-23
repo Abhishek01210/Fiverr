@@ -1,8 +1,9 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 import requests
 from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
+import json
 
 # Load environment variables
 load_dotenv()
@@ -24,7 +25,7 @@ chat_titles = {
 }
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"})
 
 def generate_chat_title(queries):
     try:
@@ -57,8 +58,7 @@ def generate_chat_title(queries):
 def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
-def get_deepseek_response(user_query, section):
-    # Customize system message based on section
+def stream_deepseek_response(user_query, section):
     system_messages = {
         'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
         'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
@@ -73,7 +73,7 @@ def get_deepseek_response(user_query, section):
         "model": "deepseek-chat",
         "max_tokens": 2048,
         "temperature": 0.7,
-        "stream": False
+        "stream": True
     }
     
     headers = {
@@ -82,9 +82,24 @@ def get_deepseek_response(user_query, section):
         'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
     }
     
-    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-    response_data = response.json()
-    return response_data['choices'][0]['message']['content']
+    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
+    
+    if response.status_code != 200:
+        raise Exception("Failed to get response from DeepSeek API")
+        
+    for line in response.iter_lines():
+        if line:
+            line = line.decode('utf-8')
+            if line.startswith('data: '):
+                try:
+                    data = json.loads(line[6:])  # Skip 'data: ' prefix
+                    if data['choices'][0]['finish_reason'] is not None:
+                        continue
+                    content = data['choices'][0]['delta'].get('content', '')
+                    if content:
+                        yield content
+                except json.JSONDecodeError:
+                    continue
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -114,20 +129,24 @@ def chat():
         chat_titles[section][chat_id]['title'] = title
 
     try:
-        response_content = get_deepseek_response(user_query, section)
+        def generate():
+            full_response = ""
+            for content in stream_deepseek_response(user_query, section):
+                full_response += content
+                yield f"data: {json.dumps({'content': content})}\n\n"
+            
+            # Store in history after complete response
+            query_history[section].append({
+                'chat_id': chat_id,
+                'query': user_query,
+                'response': full_response,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            # Send the chat_id in the final message
+            yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
 
-        # Store in history
-        query_history[section].append({
-            'chat_id': chat_id,
-            'query': user_query,
-            'response': response_content,
-            'timestamp': datetime.now().isoformat()
-        })
-
-        return jsonify({
-            'answer': response_content,
-            'chat_id': chat_id
-        })
+        return Response(generate(), mimetype='text/event-stream')
 
     except Exception as e:
         print(f"Error: {e}")
