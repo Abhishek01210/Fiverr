@@ -140,7 +140,9 @@ const handleSubmit = async (e: React.FormEvent) => {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // Read JSON error message from the backend
+      const errorData = await response.json();
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
 
     // Create a temporary bot message
@@ -195,17 +197,15 @@ const handleSubmit = async (e: React.FormEvent) => {
       }
     }
   } catch (error) {
-    console.error('Detailed streaming error:', error);
+    // Display the actual error message from the backend
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     setMessages(prev => ({
       ...prev,
       [currentSection]: [...prev[currentSection], { 
-        text: `Sorry, an error occurred: ${error instanceof Error ? error.message : String(error)}`, 
+        text: `Error: ${errorMessage}`, 
         isBot: true 
       }]
     }));
-  } finally {
-    setIsProcessing(false);
-    loadChatHistory(currentSection);
   }
 };
   
