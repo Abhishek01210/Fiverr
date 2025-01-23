@@ -115,103 +115,100 @@ function App() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMessage.trim() || isProcessing) return;
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!inputMessage.trim() || isProcessing) return;
 
-    const newMessage = { text: inputMessage, isBot: false };
+  const newMessage = { text: inputMessage, isBot: false };
+  setMessages(prev => ({
+    ...prev,
+    [currentSection]: [...prev[currentSection], newMessage]
+  }));
+  setInputMessage('');
+  setIsProcessing(true);
+  botResponseRef.current = '';
+
+  try {
+    const response = await fetch(`${API_BASE_URL}chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: inputMessage,
+        section: currentSection,
+        chat_id: currentChatId
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    // Create a temporary bot message
     setMessages(prev => ({
       ...prev,
-      [currentSection]: [...prev[currentSection], newMessage]
+      [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
     }));
-    setInputMessage('');
-    setIsProcessing(true);
-    botResponseRef.current = '';
 
-    try {
-      const response = await fetch(`${API_BASE_URL}chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: inputMessage,
-          section: currentSection,
-          chat_id: currentChatId
-        })
-      });
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
 
-      if (!response.ok) throw new Error('Network response was not ok');
+    if (!reader) {
+      throw new Error('Unable to read response stream');
+    }
+
+    let accumulatedResponse = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
       
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('Response body reader not available');
+      if (done) break;
 
-      // Add initial bot message
-      setMessages(prev => ({
-        ...prev,
-        [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
-      }));
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
 
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              
-              const chunk = new TextDecoder().decode(value);
-              const lines = chunk.split('\n');
-              
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const content = line.slice(6).trim(); // Remove 'data: ' prefix and trim whitespace
-                  
-                  if (content) {
-                    botResponseRef.current += content;
-                    setMessages(prev => {
-                      const sectionMessages = [...prev[currentSection]];
-                      const lastMessage = sectionMessages[sectionMessages.length - 1];
-                      
-                      if (lastMessage && lastMessage.isBot) {
-                        sectionMessages[sectionMessages.length - 1] = {
-                          text: botResponseRef.current,
-                          isBot: true
-                        };
-                      }
-                      
-                      return {
-                        ...prev,
-                        [currentSection]: sectionMessages
-                      };
-                    });
-                    scrollToBottom();
-                  }
-                }
-              }
-            }
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const content = line.slice(6).trim();
+          
+          if (content) {
+            accumulatedResponse += content;
             
-            if (data.chat_id) {
-              setCurrentChatId(data.chat_id);
-              setActiveSessions(prev => ({
+            // Update messages with accumulated response
+            setMessages(prev => {
+              const sectionMessages = [...prev[currentSection]];
+              const lastMessage = sectionMessages[sectionMessages.length - 1];
+              
+              if (lastMessage && lastMessage.isBot) {
+                sectionMessages[sectionMessages.length - 1] = {
+                  text: accumulatedResponse,
+                  isBot: true
+                };
+              }
+              
+              return {
                 ...prev,
-                [currentSection]: data.chat_id
-              }));
-            }
-          } catch (error) {
-            console.error('Error parsing streaming response:', error);
+                [currentSection]: sectionMessages
+              };
+            });
           }
         }
       }
-    } catch (error) {
-      console.error('Error:', error);
-      setMessages(prev => ({
-        ...prev,
-        [currentSection]: [...prev[currentSection], { 
-          text: "Sorry, I encountered an error processing your request.", 
-          isBot: true 
-        }]
-      }));
-    } finally {
-      setIsProcessing(false);
-      loadChatHistory(currentSection);
     }
-  };
-
+  } catch (error) {
+    console.error('Detailed streaming error:', error);
+    setMessages(prev => ({
+      ...prev,
+      [currentSection]: [...prev[currentSection], { 
+        text: `Sorry, an error occurred: ${error instanceof Error ? error.message : String(error)}`, 
+        isBot: true 
+      }]
+    }));
+  } finally {
+    setIsProcessing(false);
+    loadChatHistory(currentSection);
+  }
+};
+  
   const renderMessage = (message: Message) => {
     const isBot = message.isBot;
     const formattedText = marked.parse(message.text);
