@@ -117,9 +117,9 @@ def chat():
         chat_titles[section][chat_id]['title'] = title
 
     try:
-        # Stream response
-        response_stream = get_deepseek_stream(user_query, section)
-
+        # Get the stream function
+        response_stream = get_deepseek_stream(user_query, section)()
+        
         # Store the query for history (optional)
         query_history[section].append({
             'chat_id': chat_id,
@@ -127,10 +127,10 @@ def chat():
             'response': "streaming",  # Placeholder
             'timestamp': datetime.now().isoformat()
         })
-
+    
         # Return streaming response
         return Response(response_stream, content_type='text/event-stream')
-
+    
     except Exception as e:
         logging.error(f"Error processing the chat request: {str(e)}")
         logging.error("Stacktrace: \n%s", traceback.format_exc())  # Capture full traceback
