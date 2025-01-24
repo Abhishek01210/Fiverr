@@ -139,10 +139,13 @@ const handleSubmit = async (e: React.FormEvent) => {
           if (jsonString === '[DONE]') break;
 
           try {
-            const data = JSON.parse(jsonString);
-            
-            if (data.error) {
-              throw new Error(data.error);
+            // In the chunk processing loop:
+            try {
+              const data = JSON.parse(jsonString);
+            } catch (parseError) {
+              console.error('Partial/invalid JSON:', jsonString);
+              // Optionally accumulate for recovery or notify user
+              accumulatedResponse += "[...]"; 
             }
 
             if (data.content) {
