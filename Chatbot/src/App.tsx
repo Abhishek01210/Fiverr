@@ -165,67 +165,52 @@ const handleSubmit = async (e: React.FormEvent) => {
     while (true) {
       const { done, value } = await reader?.read() || {};
       if (done) break;
-
+  
       const chunk = decoder.decode(value);
       const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
+  
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonString = line.slice(6).trim();
+        try {
+          const data = JSON.parse(line.trim()); // Directly parse line
           
-          if (jsonString === '[DONE]') {
-            // Finalize message storage
-            query_history[section].push({
-              chat_id: currentChatId,
-              query: inputMessage,
-              response: botResponseRef.current,
-              timestamp: new Date().toISOString()
+          if (data.status === 'complete') break;
+          if (data.error) throw new Error(data.error);
+          
+          if (data.content) {
+            setMessages(prev => {
+              const sectionMessages = [...prev[currentSection]];
+              const lastMessage = sectionMessages[sectionMessages.length - 1];
+              botResponseRef.current += data.content;
+              
+              if (lastMessage?.isBot) {
+                sectionMessages[sectionMessages.length - 1] = {
+                  text: botResponseRef.current,
+                  isBot: true
+                };
+              }
+              return { ...prev, [currentSection]: sectionMessages };
             });
-            break;
           }
-
-          try {
-            const data = JSON.parse(jsonString);
-            
-            if (data.error) {
-              throw new Error(data.error);
+            } catch (parseError) {
+              console.error('Error parsing SSE chunk:', parseError);
+              throw new Error('Invalid server response format');
             }
-
-            if (data.content) {
-              setMessages(prev => {
-                const sectionMessages = [...prev[currentSection]];
-                const lastMessage = sectionMessages[sectionMessages.length - 1];
-                botResponseRef.current += data.content;
-                
-                if (lastMessage?.isBot) {
-                  sectionMessages[sectionMessages.length - 1] = {
-                    text: botResponseRef.current,
-                    isBot: true
-                  };
-                }
-                return { ...prev, [currentSection]: sectionMessages };
-              });
-            }
-          } catch (parseError) {
-            console.error('Error parsing SSE chunk:', parseError);
-            throw new Error('Invalid server response format');
           }
         }
       }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setMessages(prev => ({
+        ...prev,
+        [currentSection]: [...prev[currentSection], { 
+          text: `Error: ${errorMessage}`, 
+          isBot: true 
+        }]
+      }));
+    } finally {
+      setIsProcessing(false);
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    setMessages(prev => ({
-      ...prev,
-      [currentSection]: [...prev[currentSection], { 
-        text: `Error: ${errorMessage}`, 
-        isBot: true 
-      }]
-    }));
-  } finally {
-    setIsProcessing(false);
-  }
-};
+  };
   
   const renderMessage = (message: Message) => {
     const isBot = message.isBot;
