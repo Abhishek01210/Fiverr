@@ -1,11 +1,9 @@
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify
 import requests
 from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
-from openai import OpenAI
-import logging
-import traceback
+import time
 import json
 
 # Load environment variables
@@ -61,6 +59,31 @@ def generate_chat_title(queries):
 def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
+def generate_chat_stream(user_query, section):
+    """Generator function to yield chat messages."""
+    system_messages = {
+        'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
+        'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
+        'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
+    }
+
+    # Simulate sending messages based on user query
+    for i in range(5):  # Simulate sending 5 messages
+        time.sleep(1)  # Simulate delay
+        message = f"Response to '{user_query}' in section '{section}': Message {i + 1}"
+        yield f"data: {json.dumps({'message': message})}\n\n"  # Send data as JSON
+
+    yield "data: [DONE]\n\n"  # Indicate the end of the stream
+
+@app.route('/chat/stream', methods=['POST'])
+def chat_stream():
+    """SSE endpoint for chat streaming."""
+    data = request.json
+    user_query = data.get('query')
+    section = data.get('section', 'main')
+
+    return Response(generate_chat_stream(user_query, section), content_type='text/event-stream')
+
 def get_deepseek_response(user_query, section):
     # Customize system message based on section
     system_messages = {
@@ -96,7 +119,7 @@ def chat():
     user_query = data.get('query')
     section = data.get('section', 'main')
     chat_id = data.get('chat_id')
-
+    
     if not user_query:
         return jsonify({'error': 'No query provided'}), 400
 
@@ -111,70 +134,31 @@ def chat():
 
     # Store query
     chat_titles[section][chat_id]['queries'].append(user_query)
-
+    
     # Generate title after second query
     if len(chat_titles[section][chat_id]['queries']) == 2:
         title = generate_chat_title(chat_titles[section][chat_id]['queries'])
         chat_titles[section][chat_id]['title'] = title
 
-    def generate():
-        full_response = ""
-        try:
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
-            }
+    try:
+        response_content = get_deepseek_response(user_query, section)
 
-            payload = {
-                "messages": [
-                    {"role": "system", "content": system_messages[section]},
-                    {"role": "user", "content": user_query}
-                ],
-                "model": "deepseek-chat",
-                "max_tokens": 2048,
-                "temperature": 0.7,
-                "stream": True
-            }
+        # Store in history
+        query_history[section].append({
+            'chat_id': chat_id,
+            'query': user_query,
+            'response': response_content,
+            'timestamp': datetime.now().isoformat()
+        })
 
-            response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
-            
-            # In your stream generator:
-            for line in response.iter_lines():
-                if line:
-                    decoded_line = line.decode('utf-8').strip()
-                    if decoded_line.startswith('data:'):
-                        try:
-                            # Validate JSON before sending
-                            json_data = json.loads(decoded_line[5:])
-                            yield f"{decoded_line}\n\n"
-                        except json.JSONDecodeError:
-                            # Send error with context
-                            error_msg = json.dumps({'error': 'Invalid JSON chunk'})
-                            yield f"data: {error_msg}\n\n"
-            
-            # Store complete response
-            query_history[section].append({
-                'chat_id': chat_id,
-                'query': user_query,
-                'response': full_response,
-                'timestamp': datetime.now().isoformat()
-            })
-            
-            yield "data: [DONE]\n\n"
-            
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            yield "data: [DONE]\n\n"
+        return jsonify({
+            'answer': response_content,
+            'chat_id': chat_id
+        })
 
-    return Response(generate(), mimetype='text/event-stream')
-
-# Add system messages dictionary
-system_messages = {
-    'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
-    'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
-    'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
-}
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({'error': 'Unable to process the request'}), 500
 
 @app.route('/history/<section>', methods=['GET'])
 def get_history(section):
