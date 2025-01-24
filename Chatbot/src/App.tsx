@@ -339,6 +339,21 @@ try {
           </div>
         </div>
 
+        {/* In the sidebar div, after search section */}
+        <div className="px-4 py-2 border-b border-gray-200">
+          <h3 className="text-xs font-semibold text-gray-500 mb-2">Real-Time Updates</h3>
+          <div className="space-y-1 h-32 overflow-y-auto">
+            {notifications.map((msg, index) => (
+              <div key={index} className="text-xs p-2 bg-gray-100 rounded">
+                {msg}
+              </div>
+            ))}
+            {notifications.length === 0 && (
+              <p className="text-xs text-gray-400">No updates</p>
+            )}
+          </div>
+        </div>
+        
         {/* Chat History */}
         <div className="px-4 mt-4 flex-1 overflow-y-auto space-y-4">
           {renderHistorySection('today', 'Today')}
