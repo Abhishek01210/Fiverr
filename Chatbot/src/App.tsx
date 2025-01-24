@@ -189,37 +189,35 @@ try {
     const lines = chunk.split('\n');
 
     for (const line of lines) {
+      // Update the content handling in handleSubmit
       if (line.startsWith('data: ')) {
+        const rawData = line.slice(6).trim();
+        
+        if (rawData === '[DONE]') break;
+        
         try {
-          const content = line.slice(6).trim();
+          const parsed = JSON.parse(rawData);
           
-          if (content === '[DONE]') {
-            break; // End of stream
-          } else if (content.startsWith('{')) {
-            const parsedData = JSON.parse(content);
-            
-            if (parsedData.error) {
-              throw new Error(parsedData.error);
-            }
-            
-            if (parsedData.content) {
-              // Append new content incrementally
-              accumulatedResponse += parsedData.content;
-              setMessages(prev => {
-                const messages = [...prev[currentSection]];
-                const lastMessage = messages[messages.length - 1];
-                if (lastMessage?.isBot) {
-                  messages[messages.length - 1] = {
-                    text: accumulatedResponse,
-                    isBot: true
-                  };
-                }
-                return { ...prev, [currentSection]: messages };
-              });
-            }
+          if (parsed.error) {
+            throw new Error(parsed.error);
           }
-        } catch (parseError) {
-          console.error('Parsing error:', parseError);
+          
+          if (parsed.content) {
+            accumulatedResponse += parsed.content;
+            // Batch updates for better performance
+            setMessages(prev => {
+              const newMessages = [...prev[currentSection]];
+              if (newMessages.length > 0 && newMessages[newMessages.length - 1].isBot) {
+                newMessages[newMessages.length - 1] = {
+                  text: accumulatedResponse,
+                  isBot: true
+                };
+              }
+              return {...prev, [currentSection]: newMessages};
+            });
+          }
+        } catch (e) {
+          console.error('Partial JSON chunk:', rawData);
         }
       }
     }
