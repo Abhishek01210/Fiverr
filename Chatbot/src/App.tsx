@@ -174,11 +174,14 @@ const handleSubmit = async (e: React.FormEvent) => {
       }
     }
   } catch (error) {
-    console.error('Error:', error);
+    const message = error instanceof Error 
+      ? error.message 
+      : "Unknown error occurred";
+      
     setMessages(prev => ({
       ...prev,
       [currentSection]: [...prev[currentSection], { 
-        text: "Sorry, I encountered an error processing your request.", 
+        text: `Error: ${message}`, // ✅ Dynamic error
         isBot: true 
       }]
     }));
