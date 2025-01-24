@@ -7,6 +7,15 @@ from openai import OpenAI
 import logging
 import traceback
 
+@app.errorhandler(404)
+@app.errorhandler(400)
+@app.errorhandler(500)
+def handle_errors(e):
+    def error_stream():
+        yield f"data: [ERROR] {str(e)}\n\n"
+        yield "data: [DONE]\n\n"
+    return Response(error_stream(), content_type='text/event-stream')
+
 # Load environment variables
 load_dotenv()
 
