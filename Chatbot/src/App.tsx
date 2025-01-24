@@ -4,13 +4,6 @@ import { marked } from 'marked';
 
 const API_BASE_URL = 'https://chatbot-u30628.vm.elestio.app/';
 
-useEffect(() => {
-  marked.setOptions({
-    breaks: true,
-    sanitize: true  // Important for security
-  });
-}, []);
-
 interface Message {
   text: string;
   isBot: boolean;
@@ -79,14 +72,21 @@ function App() {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
+  
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages[currentSection]]); // Add section-specific dependency
 
   useEffect(() => {
     sections.forEach(loadChatHistory);
   }, []);
+
+  useEffect(() => {
+  marked.setOptions({
+    breaks: true,
+    sanitize: true
+  });
+}, []);
 
   const loadChatHistory = async (section: Section) => {
     try {
@@ -165,33 +165,36 @@ const handleSubmit = async (e: React.FormEvent) => {
     while (true) {
       const { done, value } = await reader?.read() || {};
       if (done) break;
-    
+
       const chunk = decoder.decode(value);
       const lines = chunk.split('\n').filter(line => line.trim() !== '');
-    
+
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const jsonString = line.slice(6).trim();
           
-          if (jsonString === '[DONE]') break;
-          if (jsonString.startsWith('[ERROR]')) {
-            throw new Error(jsonString.replace('[ERROR] ', ''));
+          if (jsonString === '[DONE]') {
+            // Finalize message storage
+            query_history[section].push({
+              chat_id: currentChatId,
+              query: inputMessage,
+              response: botResponseRef.current,
+              timestamp: new Date().toISOString()
+            });
+            break;
           }
-    
+
           try {
             const data = JSON.parse(jsonString);
             
             if (data.error) {
               throw new Error(data.error);
             }
-    
+
             if (data.content) {
-              // Use functional update to ensure latest state
               setMessages(prev => {
                 const sectionMessages = [...prev[currentSection]];
                 const lastMessage = sectionMessages[sectionMessages.length - 1];
-                
-                // Update the ref with latest value
                 botResponseRef.current += data.content;
                 
                 if (lastMessage?.isBot) {
@@ -200,24 +203,29 @@ const handleSubmit = async (e: React.FormEvent) => {
                     isBot: true
                   };
                 }
-                return {
-                  ...prev,
-                  [currentSection]: sectionMessages
-                };
+                return { ...prev, [currentSection]: sectionMessages };
               });
             }
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            setMessages(prev => ({
-              ...prev,
-              [currentSection]: [...prev[currentSection], { 
-                text: `Error: ${errorMessage}`, 
-                isBot: true 
-              }]
-            }));
-          } finally {
-            setIsProcessing(false);
+          } catch (parseError) {
+            console.error('Error parsing SSE chunk:', parseError);
+            throw new Error('Invalid server response format');
           }
+        }
+      }
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    setMessages(prev => ({
+      ...prev,
+      [currentSection]: [...prev[currentSection], { 
+        text: `Error: ${errorMessage}`, 
+        isBot: true 
+      }]
+    }));
+  } finally {
+    setIsProcessing(false);
+  }
+};
   
   const renderMessage = (message: Message) => {
     const isBot = message.isBot;
