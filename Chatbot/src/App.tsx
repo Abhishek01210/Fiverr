@@ -4,6 +4,13 @@ import { marked } from 'marked';
 
 const API_BASE_URL = 'https://chatbot-u30628.vm.elestio.app/';
 
+useEffect(() => {
+  marked.setOptions({
+    breaks: true,
+    sanitize: true  // Important for security
+  });
+}, []);
+
 interface Message {
   text: string;
   isBot: boolean;
@@ -158,10 +165,10 @@ const handleSubmit = async (e: React.FormEvent) => {
     while (true) {
       const { done, value } = await reader?.read() || {};
       if (done) break;
-
+    
       const chunk = decoder.decode(value);
       const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
+    
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const jsonString = line.slice(6).trim();
@@ -170,62 +177,77 @@ const handleSubmit = async (e: React.FormEvent) => {
           if (jsonString.startsWith('[ERROR]')) {
             throw new Error(jsonString.replace('[ERROR] ', ''));
           }
-
+    
           try {
-            // Parse as JSON with proper error handling
             const data = JSON.parse(jsonString);
             
             if (data.error) {
               throw new Error(data.error);
             }
-
-            // Handle content updates
+    
             if (data.content) {
-              accumulatedResponse += data.content;
+              // Use functional update to ensure latest state
               setMessages(prev => {
-                const messages = [...prev[currentSection]];
-                const lastMessage = messages[messages.length - 1];
+                const sectionMessages = [...prev[currentSection]];
+                const lastMessage = sectionMessages[sectionMessages.length - 1];
+                
+                // Update the ref with latest value
+                botResponseRef.current += data.content;
+                
                 if (lastMessage?.isBot) {
-                  messages[messages.length - 1] = {
-                    text: accumulatedResponse,
+                  sectionMessages[sectionMessages.length - 1] = {
+                    text: botResponseRef.current,
                     isBot: true
                   };
                 }
-                return { ...prev, [currentSection]: messages };
+                return {
+                  ...prev,
+                  [currentSection]: sectionMessages
+                };
               });
             }
-
-          } catch (parseError) {
-            console.error('Error parsing SSE chunk:', parseError);
-            throw new Error('Invalid server response format');
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            setMessages(prev => ({
+              ...prev,
+              [currentSection]: [...prev[currentSection], { 
+                text: `Error: ${errorMessage}`, 
+                isBot: true 
+              }]
+            }));
+          } finally {
+            setIsProcessing(false);
           }
-        }
-      }
-    }
-  } finally {
-  setIsProcessing(false); 
-};
   
   const renderMessage = (message: Message) => {
     const isBot = message.isBot;
-    const formattedText = marked.parse(message.text);
-
-    return (
-      <div className={`flex ${isBot ? 'justify-start' : 'justify-end'}`}>
-        <div
-          className={`max-w-[80%] rounded-lg p-4 ${
-            isBot
-              ? 'bg-white text-gray-800 shadow-sm'
-              : 'bg-blue-600 text-white'
-          }`}
-        >
-          <div
-            className="prose max-w-none"
-            dangerouslySetInnerHTML={{ __html: formattedText }}
-          />
+    
+    // Add error handling for markdown parsing
+    try {
+      const formattedText = marked.parse(message.text);
+      return (
+        <div className={`flex ${isBot ? 'justify-start' : 'justify-end'} mb-4`}>
+          <div className={`max-w-[80%] rounded-lg p-4 ${
+            isBot ? 'bg-white text-gray-800 shadow-sm' : 'bg-blue-600 text-white'
+          }`}>
+            <div 
+              className="prose max-w-none"
+              dangerouslySetInnerHTML={{ __html: formattedText }}
+            />
+          </div>
         </div>
-      </div>
-    );
+      );
+    } catch (e) {
+      return (
+        <div className={`flex ${isBot ? 'justify-start' : 'justify-end'} mb-4`}>
+          <div className={`max-w-[80%] rounded-lg p-4 ${
+            isBot ? 'bg-red-50 text-red-600' : 'bg-blue-600 text-white'
+          }`}>
+            Failed to render message: {message.text}
+          </div>
+        </div>
+      );
+    }
   };
 
   const renderHistorySection = (period: keyof ChatHistory, title: string) => {
