@@ -91,12 +91,14 @@ def get_deepseek_stream(user_query, section):
             )
 
             for chunk in response:
-                content = chunk.choices[0].delta.content
+                content = chunk.choices[0].delta.content or ""  # Handle None
                 if content:
                     full_response += content
-                    # Send JSON-encoded content
+                    # Ensure valid JSON encoding
                     yield f"data: {json.dumps({'content': content})}\n\n"
             
+            # Store complete response after streaming
+            query_history[section][-1]['response'] = full_response
             yield "data: [DONE]\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
