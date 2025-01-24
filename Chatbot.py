@@ -27,6 +27,12 @@ chat_titles = {
     'bare_acts': {}
 }
 
+system_messages = {
+    'main': "You are a helpful legal assistant...",
+    'for_against': "You are a legal analyst...",
+    'bare_acts': "You are a legal expert..."
+}
+
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
@@ -145,9 +151,10 @@ def chat():
                     decoded_line = line.decode('utf-8').strip()
                     if decoded_line.startswith('data:'):
                         try:
-                            # Validate JSON before sending
                             json_data = json.loads(decoded_line[5:])
-                            yield f"{decoded_line}\n\n"
+                            if 'content' in json_data.get('choices', [{}])[0].get('delta', {}):
+                                content = json_data['choices'][0]['delta']['content']
+                                full_response += content
                         except json.JSONDecodeError:
                             # Send error with context
                             error_msg = json.dumps({'error': 'Invalid JSON chunk'})
