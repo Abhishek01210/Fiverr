@@ -128,85 +128,93 @@ const handleSubmit = async (e: React.FormEvent) => {
   setIsProcessing(true);
   botResponseRef.current = '';
 
-  try {
-    const response = await fetch(`${API_BASE_URL}chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: inputMessage,
-        section: currentSection,
-        chat_id: currentChatId
-      })
-    });
+try {
+  const response = await fetch(`${API_BASE_URL}chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: inputMessage,
+      section: currentSection,
+      chat_id: currentChatId
+    })
+  });
 
-    if (!response.ok) {
-      // Handle SSE errors (DO NOT use response.json())
-      const errorText = await response.text();
-      throw new Error(`HTTP error: ${response.status} - ${errorText}`);
-    }
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP error: ${response.status} - ${errorText}`);
+  }
 
-    // Create a temporary bot message
-    setMessages(prev => ({
-      ...prev,
-      [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
-    }));
+  // Create a temporary bot message
+  setMessages(prev => ({
+    ...prev,
+    [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
+  }));
 
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
 
-    if (!reader) {
-      throw new Error('Unable to read response stream');
-    }
+  if (!reader) {
+    throw new Error('Unable to read response stream');
+  }
 
-    let accumulatedResponse = '';
+  let accumulatedResponse = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      
-      if (done) break;
+  while (true) {
+    const { done, value } = await reader.read();
+    
+    if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n');
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
           const content = line.slice(6).trim();
           
           if (content === '[DONE]') {
             break; // End of stream
-          } else if (content.startsWith('[ERROR]')) {
-            throw new Error(content.replace('[ERROR] ', ''));
-          } else {
-            // Append new content incrementally
-            botResponseRef.current += content;
-            setMessages(prev => {
-              const messages = [...prev[currentSection]];
-              const lastMessage = messages[messages.length - 1];
-              if (lastMessage?.isBot) {
-                messages[messages.length - 1] = {
-                  text: botResponseRef.current,
-                  isBot: true
-                };
-              }
-              return { ...prev, [currentSection]: messages };
-            });
+          } else if (content.startsWith('{')) {
+            const parsedData = JSON.parse(content);
+            
+            if (parsedData.error) {
+              throw new Error(parsedData.error);
+            }
+            
+            if (parsedData.content) {
+              // Append new content incrementally
+              accumulatedResponse += parsedData.content;
+              setMessages(prev => {
+                const messages = [...prev[currentSection]];
+                const lastMessage = messages[messages.length - 1];
+                if (lastMessage?.isBot) {
+                  messages[messages.length - 1] = {
+                    text: accumulatedResponse,
+                    isBot: true
+                  };
+                }
+                return { ...prev, [currentSection]: messages };
+              });
+            }
           }
+        } catch (parseError) {
+          console.error('Parsing error:', parseError);
         }
       }
     }
-  } catch (error) {
-    // Display the actual error message from the backend
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    setMessages(prev => ({
-      ...prev,
-      [currentSection]: [...prev[currentSection], { 
-        text: `Error: ${errorMessage}`, 
-        isBot: true 
-      }]
-    }));
-  } finally {
-  setIsProcessing(false); 
-};
+  }
+} catch (error) {
+  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  setMessages(prev => ({
+    ...prev,
+    [currentSection]: [...prev[currentSection], { 
+      text: `Error: ${errorMessage}`, 
+      isBot: true 
+    }]
+  }));
+} finally {
+  setIsProcessing(false);
+}
   
   const renderMessage = (message: Message) => {
     const isBot = message.isBot;
