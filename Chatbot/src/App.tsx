@@ -204,7 +204,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         isBot: true 
       }]
     }));
-  }
+  } finally {
   setIsProcessing(false); 
 };
   
