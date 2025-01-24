@@ -92,12 +92,12 @@ def get_deepseek_stream(user_query, section):
             for chunk in response:
                 content = chunk.choices[0].delta.content
                 if content:
-                    # Send properly formatted JSON
-                    yield f"data: {json.dumps({'content': content})}\n\n"
-            yield "data: [DONE]\n\n"
+                    # Remove 'data: ' prefix and send pure JSON
+                    yield f"{json.dumps({'content': content})}\n"  # Single newline
+            yield json.dumps({"status": "complete"}) + "\n"  # Final marker
+            
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            yield "data: [DONE]\n\n"
+            yield json.dumps({'error': str(e)}) + "\n"
     return stream
 
 @app.route('/chat', methods=['POST'])
