@@ -90,94 +90,102 @@ function App() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMessage.trim()) return;
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!inputMessage.trim()) return;
 
-    const newMessage = { text: inputMessage, isBot: false };
+  const newMessage = { text: inputMessage, isBot: false };
+  setMessages(prev => ({
+    ...prev,
+    [currentSection]: [...prev[currentSection], newMessage]
+  }));
+  setInputMessage('');
+  setIsProcessing(true);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: inputMessage,
+        section: currentSection,
+        chat_id: currentChatId
+      })
+    });
+
+    if (!response.ok) throw new Error('Network response was not ok');
+
+    // Create a temporary bot message
     setMessages(prev => ({
       ...prev,
-      [currentSection]: [...prev[currentSection], newMessage]
+      [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
     }));
-    setInputMessage('');
-    setIsProcessing(true);
-    botResponseRef.current = '';
 
-    try {
-      const response = await fetch(`${API_BASE_URL}chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: inputMessage,
-          section: currentSection,
-          chat_id: currentChatId
-        })
-      });
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let accumulatedResponse = '';
 
-      if (!response.ok) throw new Error('Network response was not ok');
-      
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader?.read() || {};
+      if (done) break;
 
-      while (true) {
-        const { done, value } = await reader?.read() || {};
-        
-        if (done) break;
-        
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim() !== '');
-        
-        lines.forEach(line => {
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonString = line.slice(6).trim();
+          
+          if (jsonString === '[DONE]') break;
+
           try {
-            const jsonData = JSON.parse(line);
+            const data = JSON.parse(jsonString);
             
-            if (jsonData.content) {
-              botResponseRef.current += jsonData.content;
+            if (data.error) {
+              throw new Error(data.error);
+            }
+
+            if (data.content) {
+              accumulatedResponse += data.content;
               setMessages(prev => {
                 const messages = [...prev[currentSection]];
-                const lastMessageIndex = messages.length - 1;
-                
-                if (lastMessageIndex >= 0 && messages[lastMessageIndex].isBot) {
-                  messages[lastMessageIndex] = { 
-                    text: botResponseRef.current, 
-                    isBot: true 
+                const lastMessage = messages[messages.length - 1];
+                if (lastMessage?.isBot) {
+                  messages[messages.length - 1] = {
+                    text: accumulatedResponse,
+                    isBot: true
                   };
-                } else {
-                  messages.push({ 
-                    text: botResponseRef.current, 
-                    isBot: true 
-                  });
                 }
-                
-                return {
-                  ...prev,
-                  [currentSection]: messages
-                };
+                return { ...prev, [currentSection]: messages };
               });
             }
-            
-            if (jsonData.chat_id) {
-              setCurrentChatId(jsonData.chat_id);
+
+            if (data.chat_id && !currentChatId) {
+              setCurrentChatId(data.chat_id);
               setActiveSessions(prev => ({
                 ...prev,
-                [currentSection]: jsonData.chat_id
+                [currentSection]: data.chat_id
               }));
             }
           } catch (parseError) {
             console.error('Error parsing chunk:', parseError);
           }
-        });
+        }
       }
-    } catch (error) {
-      console.error('Error:', error);
-      setMessages(prev => ({
-        ...prev,
-        [currentSection]: [...prev[currentSection], { text: "Sorry, I encountered an error processing your request.", isBot: true }]
-      }));
-    } finally {
-      setIsProcessing(false);
     }
-  };
+  } catch (error) {
+    console.error('Error:', error);
+    setMessages(prev => ({
+      ...prev,
+      [currentSection]: [...prev[currentSection], { 
+        text: "Sorry, I encountered an error processing your request.", 
+        isBot: true 
+      }]
+    }));
+  } finally {
+    setIsProcessing(false);
+  }
+};
   
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
