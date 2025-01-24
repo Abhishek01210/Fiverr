@@ -205,6 +205,7 @@ const handleSubmit = async (e: React.FormEvent) => {
       }]
     }));
   }
+  setIsProcessing(false); 
 };
   
   const renderMessage = (message: Message) => {
