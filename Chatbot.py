@@ -140,14 +140,20 @@ def chat():
             response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
             
             for line in response.iter_lines():
-                if line:
-                    decoded_line = line.decode('utf-8')
-                    if decoded_line.startswith('data:'):
-                        json_data = json.loads(decoded_line[5:].strip())
-                        if 'choices' in json_data and json_data['choices'][0]['delta'].get('content'):
-                            content = json_data['choices'][0]['delta']['content']
-                            full_response += content
-                            yield f"data: {json.dumps({'content': content, 'chat_id': chat_id})}\n\n"
+                # In the backend's stream generator:
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            decoded_line = line.decode('utf-8')
+                            if decoded_line.startswith('data:'):
+                                json_data = json.loads(decoded_line[5:].strip())
+                                if 'choices' in json_data and json_data['choices'][0]['delta'].get('content'):
+                                    content = json_data['choices'][0]['delta']['content']
+                                    full_response += content
+                                    yield f"data: {json.dumps({'content': content, 'chat_id': chat_id})}\n\n"
+
+                        except json.JSONDecodeError as e:
+                            yield f"data: {json.dumps({'error': f'Invalid JSON: {str(e)}'})}\n\n"
             
             # Store complete response
             query_history[section].append({
