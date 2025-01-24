@@ -77,6 +77,7 @@ def get_deepseek_stream(user_query, section):
 
     def stream():
         try:
+            full_response = ""
             response = client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[
@@ -91,10 +92,13 @@ def get_deepseek_stream(user_query, section):
             for chunk in response:
                 content = chunk.choices[0].delta.content
                 if content:
-                    yield f"data: {content}\n\n"  # Send actual content
-            yield "data: [DONE]\n\n"  # Terminate stream ONCE at the end
+                    full_response += content
+                    # Send JSON-encoded content
+                    yield f"data: {json.dumps({'content': content})}\n\n"
+            
+            yield "data: [DONE]\n\n"
         except Exception as e:
-            yield f"data: [ERROR] {str(e)}\n\n"
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
             yield "data: [DONE]\n\n"
     return stream
 
