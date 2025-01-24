@@ -69,50 +69,6 @@ function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const botResponseRef = useRef<string>('');
 
-  // Add these inside the App component
-  const handleNewChat = (section: Section) => {
-    setCurrentChatId(null);
-    setActiveSessions(prev => ({ ...prev, [section]: null }));
-    setMessages(prev => ({ ...prev, [section]: [{ text: "How can I help you today?", isBot: true }] }));
-  };
-  
-  const loadChatHistory = async (section: Section) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}history/${section}`);
-      const data = await response.json();
-      setHistory(prev => ({ ...prev, [section]: data }));
-    } catch (error) {
-      console.error('Error loading history:', error);
-    }
-  };
-  
-  const renderMessage = (message: Message) => (
-    <div className={`flex ${message.isBot ? 'justify-start' : 'justify-end'} mb-4`}>
-      <div className={`max-w-3/4 p-3 rounded-lg ${
-        message.isBot ? 'bg-white border border-gray-200' : 'bg-blue-600 text-white'
-      }`}>
-        <div dangerouslySetInnerHTML={{ __html: marked.parse(message.text) }} />
-      </div>
-    </div>
-  );
-  
-  const renderHistorySection = (period: keyof ChatHistory, title: string) => (
-    history[currentSection][period].length > 0 && (
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase">{title}</h3>
-        {history[currentSection][period].map((group, idx) => (
-          <button
-            key={idx}
-            className="w-full text-left p-2 hover:bg-gray-100 rounded-lg text-sm"
-            onClick={() => loadChat(group.chat_id)}
-          >
-            {group.title}
-          </button>
-        ))}
-      </div>
-    )
-  );  
-  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -125,6 +81,31 @@ function App() {
     sections.forEach(loadChatHistory);
   }, []);
 
+  const loadChatHistory = async (section: Section) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}history/${section}`);
+      const data = await response.json();
+      setHistory(prev => ({
+        ...prev,
+        [section]: data
+      }));
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+    }
+  };
+
+  const handleNewChat = (section: Section) => {
+    setCurrentChatId(null);
+    setActiveSessions(prev => ({
+      ...prev,
+      [section]: null
+    }));
+    setMessages(prev => ({
+      ...prev,
+      [section]: [{ text: "How can I help you today?", isBot: true }]
+    }));
+  };
+
   const switchSection = (section: Section) => {
     setCurrentSection(section);
     setCurrentChatId(activeSessions[section]);
@@ -136,7 +117,7 @@ function App() {
 
 const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
-  if (!inputMessage.trim()) return;
+  if (!inputMessage.trim() || isProcessing) return;
 
   const newMessage = { text: inputMessage, isBot: false };
   setMessages(prev => ({
@@ -145,6 +126,7 @@ const handleSubmit = async (e: React.FormEvent) => {
   }));
   setInputMessage('');
   setIsProcessing(true);
+  botResponseRef.current = '';
 
   try {
     const response = await fetch(`${API_BASE_URL}chat`, {
@@ -157,7 +139,11 @@ const handleSubmit = async (e: React.FormEvent) => {
       })
     });
 
-    if (!response.ok) throw new Error('Network response was not ok');
+    if (!response.ok) {
+      // Handle SSE errors (DO NOT use response.json())
+      const errorText = await response.text();
+      throw new Error(`HTTP error: ${response.status} - ${errorText}`);
+    }
 
     // Create a temporary bot message
     setMessages(prev => ({
@@ -167,87 +153,114 @@ const handleSubmit = async (e: React.FormEvent) => {
 
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
+
+    if (!reader) {
+      throw new Error('Unable to read response stream');
+    }
+
     let accumulatedResponse = '';
 
     while (true) {
-      const { done, value } = await reader?.read() || {};
+      const { done, value } = await reader.read();
+      
       if (done) break;
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n').filter(line => line.trim() !== '');
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
-          const jsonString = line.slice(6).trim();
+          const content = line.slice(6).trim();
           
-          if (jsonString === '[DONE]') break;
-
-          try {
-            const data = JSON.parse(jsonString);
-            
-            if (data.error) {
-              throw new Error(data.error);
-            }
-
-            if (data.content) {
-              accumulatedResponse += data.content;
-              setMessages(prev => {
-                const messages = [...prev[currentSection]];
-                const lastMessage = messages[messages.length - 1];
-                if (lastMessage?.isBot) {
-                  messages[messages.length - 1] = {
-                    text: accumulatedResponse,
-                    isBot: true
-                  };
-                }
-                return { ...prev, [currentSection]: messages };
-              });
-            }
-
-            if (data.chat_id && !currentChatId) {
-              setCurrentChatId(data.chat_id);
-              setActiveSessions(prev => ({
-                ...prev,
-                [currentSection]: data.chat_id
-              }));
-            }
-          } catch (parseError) {
-            console.error('Error parsing chunk:', parseError);
+          if (content === '[DONE]') {
+            break; // End of stream
+          } else if (content.startsWith('[ERROR]')) {
+            throw new Error(content.replace('[ERROR] ', ''));
+          } else {
+            // Append new content incrementally
+            botResponseRef.current += content;
+            setMessages(prev => {
+              const messages = [...prev[currentSection]];
+              const lastMessage = messages[messages.length - 1];
+              if (lastMessage?.isBot) {
+                messages[messages.length - 1] = {
+                  text: botResponseRef.current,
+                  isBot: true
+                };
+              }
+              return { ...prev, [currentSection]: messages };
+            });
           }
         }
       }
     }
   } catch (error) {
-    console.error('Error:', error);
+    // Display the actual error message from the backend
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     setMessages(prev => ({
       ...prev,
       [currentSection]: [...prev[currentSection], { 
-        text: "Sorry, I encountered an error processing your request.", 
+        text: `Error: ${errorMessage}`, 
         isBot: true 
       }]
     }));
   } finally {
-    setIsProcessing(false);
-  }
+  setIsProcessing(false); 
 };
+  
+  const renderMessage = (message: Message) => {
+    const isBot = message.isBot;
+    const formattedText = marked.parse(message.text);
 
-  const loadChat = (chatId: string) => {
-  const chatGroup = history[currentSection].today
-    .concat(history[currentSection].yesterday)
-    .find(group => group.messages.some(msg => msg.chat_id === chatId));
-  
-  if (chatGroup) {
-    setMessages(prev => ({
-      ...prev,
-      [currentSection]: chatGroup.messages.flatMap(msg => [
-        { text: msg.query, isBot: false },
-        { text: msg.response, isBot: true }
-      ])
-    }));
-    setCurrentChatId(chatId);
-  }
-};
-  
+    return (
+      <div className={`flex ${isBot ? 'justify-start' : 'justify-end'}`}>
+        <div
+          className={`max-w-[80%] rounded-lg p-4 ${
+            isBot
+              ? 'bg-white text-gray-800 shadow-sm'
+              : 'bg-blue-600 text-white'
+          }`}
+        >
+          <div
+            className="prose max-w-none"
+            dangerouslySetInnerHTML={{ __html: formattedText }}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const renderHistorySection = (period: keyof ChatHistory, title: string) => {
+    const filteredChats = history[currentSection][period].filter(chat =>
+      !searchTerm ||
+      chat.messages.some(msg =>
+        msg.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        msg.response.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    );
+
+    if (filteredChats.length === 0) return null;
+
+    return (
+      <div>
+        <h3 className="text-xs font-semibold text-gray-500 mb-2">{title}</h3>
+        <div className="space-y-1">
+          {filteredChats.map((chat, index) => (
+            <button
+              key={index}
+              onClick={() => {
+                // Handle chat selection
+              }}
+              className="w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-100 transition-colors"
+            >
+              {chat.title || "New Chat"}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
@@ -270,8 +283,8 @@ const handleSubmit = async (e: React.FormEvent) => {
                     onClick={() => switchSection(section)}
                     className={`w-full text-left px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
                       currentSection === section
-                        ? 'tab-active'
-                        : 'hover:bg-gray-100'
+                        ? 'bg-gray-100'
+                        : 'hover:bg-gray-50'
                     }`}
                   >
                     <Icon className="w-5 h-5" />
@@ -301,8 +314,8 @@ const handleSubmit = async (e: React.FormEvent) => {
         <div className="px-4 mt-4 flex-1 overflow-y-auto space-y-4">
           {renderHistorySection('today', 'Today')}
           {renderHistorySection('yesterday', 'Yesterday')}
-          {renderHistorySection('seven_days', '7 Days')}
-          {renderHistorySection('thirty_days', '30 Days')}
+          {renderHistorySection('seven_days', 'Last 7 Days')}
+          {renderHistorySection('thirty_days', 'Last 30 Days')}
         </div>
       </div>
 
@@ -322,7 +335,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 messages-container">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
           {messages[currentSection].map((message, index) => (
             <div key={index}>{renderMessage(message)}</div>
           ))}
@@ -337,11 +350,13 @@ const handleSubmit = async (e: React.FormEvent) => {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder="Type your message..."
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500"
+              disabled={isProcessing}
+              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed"
             />
             <button
               type="submit"
-              className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors flex items-center gap-2"
+              disabled={isProcessing || !inputMessage.trim()}
+              className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:bg-blue-400 disabled:cursor-not-allowed"
             >
               <Send className="w-5 h-5" />
               <span>Send</span>
