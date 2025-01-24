@@ -92,7 +92,7 @@ def chat():
     user_query = data.get('query')
     section = data.get('section', 'main')
     chat_id = data.get('chat_id')
-    
+
     if not user_query:
         return jsonify({'error': 'No query provided'}), 400
 
@@ -107,31 +107,66 @@ def chat():
 
     # Store query
     chat_titles[section][chat_id]['queries'].append(user_query)
-    
+
     # Generate title after second query
     if len(chat_titles[section][chat_id]['queries']) == 2:
         title = generate_chat_title(chat_titles[section][chat_id]['queries'])
         chat_titles[section][chat_id]['title'] = title
 
-    try:
-        response_content = get_deepseek_response(user_query, section)
+    def generate():
+        full_response = ""
+        try:
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
+            }
 
-        # Store in history
-        query_history[section].append({
-            'chat_id': chat_id,
-            'query': user_query,
-            'response': response_content,
-            'timestamp': datetime.now().isoformat()
-        })
+            payload = {
+                "messages": [
+                    {"role": "system", "content": system_messages[section]},
+                    {"role": "user", "content": user_query}
+                ],
+                "model": "deepseek-chat",
+                "max_tokens": 2048,
+                "temperature": 0.7,
+                "stream": True
+            }
 
-        return jsonify({
-            'answer': response_content,
-            'chat_id': chat_id
-        })
+            response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
+            
+            for line in response.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    if decoded_line.startswith('data:'):
+                        json_data = json.loads(decoded_line[5:].strip())
+                        if 'choices' in json_data and json_data['choices'][0]['delta'].get('content'):
+                            content = json_data['choices'][0]['delta']['content']
+                            full_response += content
+                            yield f"data: {json.dumps({'content': content, 'chat_id': chat_id})}\n\n"
+            
+            # Store complete response
+            query_history[section].append({
+                'chat_id': chat_id,
+                'query': user_query,
+                'response': full_response,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield "data: [DONE]\n\n"
 
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({'error': 'Unable to process the request'}), 500
+    return Response(generate(), mimetype='text/event-stream')
+
+# Add system messages dictionary
+system_messages = {
+    'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
+    'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
+    'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
+}
 
 @app.route('/history/<section>', methods=['GET'])
 def get_history(section):
