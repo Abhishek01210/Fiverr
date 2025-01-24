@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from openai import OpenAI
 import logging
 import traceback
+import json
 
 # Load environment variables
 load_dotenv()
