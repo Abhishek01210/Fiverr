@@ -136,7 +136,8 @@ def chat():
         return Response(response_stream, content_type='text/event-stream')
 
     except Exception as e:
-        # Existing error handling (correct)
+        logging.error(f"Error processing the chat request: {str(e)}")
+        logging.error("Stacktrace: \n%s", traceback.format_exc())  # Add this line
         def error_stream():
             yield f"data: [ERROR] {str(e)}\n\n"
             yield "data: [DONE]\n\n"
