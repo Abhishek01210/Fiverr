@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Scale, BookOpen, MessageCircle, Search, Send } from 'lucide-react';
 import { marked } from 'marked';
-import useSSE from './hooks/useSSE';
 
 const API_BASE_URL = 'https://chatbot-u30628.vm.elestio.app/';
 
@@ -70,26 +69,6 @@ function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const botResponseRef = useRef<string>('');
 
-  const SSE_URL = `${API_BASE_URL}events`;
-  const { data: sseData, error: sseError } = useSSE(SSE_URL);
-
-  // Add new state for SSE notifications
-  const [notifications, setNotifications] = useState<string[]>([]);
-  
-  // Handle SSE data
-  useEffect(() => {
-    if (sseData) {
-      setNotifications(prev => [...prev, sseData]);
-    }
-  }, [sseData]);
-  
-  // Handle SSE errors
-  useEffect(() => {
-    if (sseError) {
-      console.error('SSE Error:', sseError);
-    }
-  }, [sseError]);
-  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -102,31 +81,6 @@ function App() {
     sections.forEach(loadChatHistory);
   }, []);
 
-  const loadChatHistory = async (section: Section) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}history/${section}`);
-      const data = await response.json();
-      setHistory(prev => ({
-        ...prev,
-        [section]: data
-      }));
-    } catch (error) {
-      console.error('Error loading chat history:', error);
-    }
-  };
-
-  const handleNewChat = (section: Section) => {
-    setCurrentChatId(null);
-    setActiveSessions(prev => ({
-      ...prev,
-      [section]: null
-    }));
-    setMessages(prev => ({
-      ...prev,
-      [section]: [{ text: "How can I help you today?", isBot: true }]
-    }));
-  };
-
   const switchSection = (section: Section) => {
     setCurrentSection(section);
     setCurrentChatId(activeSessions[section]);
@@ -136,159 +90,95 @@ function App() {
     }
   };
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!inputMessage.trim() || isProcessing) return;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputMessage.trim()) return;
 
-  const newMessage = { text: inputMessage, isBot: false };
-  setMessages(prev => ({
-    ...prev,
-    [currentSection]: [...prev[currentSection], newMessage]
-  }));
-  setInputMessage('');
-  setIsProcessing(true);
-  botResponseRef.current = '';
+    const newMessage = { text: inputMessage, isBot: false };
+    setMessages(prev => ({
+      ...prev,
+      [currentSection]: [...prev[currentSection], newMessage]
+    }));
+    setInputMessage('');
+    setIsProcessing(true);
+    botResponseRef.current = '';
 
-try {
-  const response = await fetch(`${API_BASE_URL}chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      query: inputMessage,
-      section: currentSection,
-      chat_id: currentChatId
-    })
-  });
+    try {
+      const response = await fetch(`${API_BASE_URL}chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: inputMessage,
+          section: currentSection,
+          chat_id: currentChatId
+        })
+      });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`HTTP error: ${response.status} - ${errorText}`);
-  }
+      if (!response.ok) throw new Error('Network response was not ok');
+      
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
 
-  // Create a temporary bot message
-  setMessages(prev => ({
-    ...prev,
-    [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
-  }));
-
-  const reader = response.body?.getReader();
-  const decoder = new TextDecoder();
-
-  if (!reader) {
-    throw new Error('Unable to read response stream');
-  }
-
-  let accumulatedResponse = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    
-    if (done) break;
-
-    const chunk = decoder.decode(value, { stream: true });
-    const lines = chunk.split('\n');
-
-    for (const line of lines) {
-      // Update the content handling in handleSubmit
-      if (line.startsWith('data: ')) {
-        const rawData = line.slice(6).trim();
+      while (true) {
+        const { done, value } = await reader?.read() || {};
         
-        if (rawData === '[DONE]') break;
+        if (done) break;
         
-        try {
-          const parsed = JSON.parse(rawData);
-          
-          if (parsed.error) {
-            throw new Error(parsed.error);
-          }
-          
-          if (parsed.content) {
-            accumulatedResponse += parsed.content;
-            // Batch updates for better performance
-            setMessages(prev => {
-              const newMessages = [...prev[currentSection]];
-              if (newMessages.length > 0 && newMessages[newMessages.length - 1].isBot) {
-                newMessages[newMessages.length - 1] = {
-                  text: accumulatedResponse,
-                  isBot: true
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        
+        lines.forEach(line => {
+          try {
+            const jsonData = JSON.parse(line);
+            
+            if (jsonData.content) {
+              botResponseRef.current += jsonData.content;
+              setMessages(prev => {
+                const messages = [...prev[currentSection]];
+                const lastMessageIndex = messages.length - 1;
+                
+                if (lastMessageIndex >= 0 && messages[lastMessageIndex].isBot) {
+                  messages[lastMessageIndex] = { 
+                    text: botResponseRef.current, 
+                    isBot: true 
+                  };
+                } else {
+                  messages.push({ 
+                    text: botResponseRef.current, 
+                    isBot: true 
+                  });
+                }
+                
+                return {
+                  ...prev,
+                  [currentSection]: messages
                 };
-              }
-              return {...prev, [currentSection]: newMessages};
-            });
+              });
+            }
+            
+            if (jsonData.chat_id) {
+              setCurrentChatId(jsonData.chat_id);
+              setActiveSessions(prev => ({
+                ...prev,
+                [currentSection]: jsonData.chat_id
+              }));
+            }
+          } catch (parseError) {
+            console.error('Error parsing chunk:', parseError);
           }
-        } catch (e) {
-          console.error('Partial JSON chunk:', rawData);
-        }
+        });
       }
+    } catch (error) {
+      console.error('Error:', error);
+      setMessages(prev => ({
+        ...prev,
+        [currentSection]: [...prev[currentSection], { text: "Sorry, I encountered an error processing your request.", isBot: true }]
+      }));
+    } finally {
+      setIsProcessing(false);
     }
-  }
-} catch (error) {
-  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-  setMessages(prev => ({
-    ...prev,
-    [currentSection]: [...prev[currentSection], { 
-      text: `Error: ${errorMessage}`, 
-      isBot: true 
-    }]
-  }));
-} finally {
-  setIsProcessing(false);
-}
-  
-const renderMessage = (message: Message) => {
-  const isBot = message.isBot;
-  const formattedText = marked.parse(message.text);
-
-  return (
-    <div className={`flex ${isBot ? 'justify-start' : 'justify-end'}`}>
-      <div
-        className={`max-w-[80%] rounded-lg p-4 ${
-          isBot
-            ? 'bg-white text-gray-800 shadow-sm'
-            : 'bg-blue-600 text-white'
-        }`}
-      >
-        <div
-          className="prose max-w-none"
-          dangerouslySetInnerHTML={{ __html: formattedText }}
-        />
-      </div>
-    </div>
-  );
-};
-
-const renderHistorySection = (period: keyof ChatHistory, title: string) => {
-  const filteredChats = history[currentSection][period].filter(chat =>
-    !searchTerm ||
-    chat.messages.some(msg =>
-      msg.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      msg.response.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  );
-
-  if (filteredChats.length === 0) return null;
-
-    return (
-      <div>
-        <h3 className="text-xs font-semibold text-gray-500 mb-2">{title}</h3>
-        <div className="space-y-1">
-          {filteredChats.map((chat, index) => (
-            <button
-              key={index}
-              onClick={() => {
-                // Handle chat selection
-              }}
-              className="w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-100 transition-colors"
-            >
-              {chat.title || "New Chat"}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
   };
-
-  return (
+  
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
@@ -310,8 +200,8 @@ const renderHistorySection = (period: keyof ChatHistory, title: string) => {
                     onClick={() => switchSection(section)}
                     className={`w-full text-left px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
                       currentSection === section
-                        ? 'bg-gray-100'
-                        : 'hover:bg-gray-50'
+                        ? 'tab-active'
+                        : 'hover:bg-gray-100'
                     }`}
                   >
                     <Icon className="w-5 h-5" />
@@ -337,27 +227,12 @@ const renderHistorySection = (period: keyof ChatHistory, title: string) => {
           </div>
         </div>
 
-        {/* In the sidebar div, after search section */}
-        <div className="px-4 py-2 border-b border-gray-200">
-          <h3 className="text-xs font-semibold text-gray-500 mb-2">Real-Time Updates</h3>
-          <div className="space-y-1 h-32 overflow-y-auto">
-            {notifications.map((msg, index) => (
-              <div key={index} className="text-xs p-2 bg-gray-100 rounded">
-                {msg}
-              </div>
-            ))}
-            {notifications.length === 0 && (
-              <p className="text-xs text-gray-400">No updates</p>
-            )}
-          </div>
-        </div>
-        
         {/* Chat History */}
         <div className="px-4 mt-4 flex-1 overflow-y-auto space-y-4">
           {renderHistorySection('today', 'Today')}
           {renderHistorySection('yesterday', 'Yesterday')}
-          {renderHistorySection('seven_days', 'Last 7 Days')}
-          {renderHistorySection('thirty_days', 'Last 30 Days')}
+          {renderHistorySection('seven_days', '7 Days')}
+          {renderHistorySection('thirty_days', '30 Days')}
         </div>
       </div>
 
@@ -377,7 +252,7 @@ const renderHistorySection = (period: keyof ChatHistory, title: string) => {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 messages-container">
           {messages[currentSection].map((message, index) => (
             <div key={index}>{renderMessage(message)}</div>
           ))}
@@ -392,13 +267,11 @@ const renderHistorySection = (period: keyof ChatHistory, title: string) => {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder="Type your message..."
-              disabled={isProcessing}
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed"
+              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500"
             />
             <button
               type="submit"
-              disabled={isProcessing || !inputMessage.trim()}
-              className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:bg-blue-400 disabled:cursor-not-allowed"
+              className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors flex items-center gap-2"
             >
               <Send className="w-5 h-5" />
               <span>Send</span>
