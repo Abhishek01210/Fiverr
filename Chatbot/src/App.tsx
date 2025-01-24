@@ -237,38 +237,38 @@ try {
   setIsProcessing(false);
 }
   
-  const renderMessage = (message: Message) => {
-    const isBot = message.isBot;
-    const formattedText = marked.parse(message.text);
+const renderMessage = (message: Message) => {
+  const isBot = message.isBot;
+  const formattedText = marked.parse(message.text);
 
-    return (
-      <div className={`flex ${isBot ? 'justify-start' : 'justify-end'}`}>
+  return (
+    <div className={`flex ${isBot ? 'justify-start' : 'justify-end'}`}>
+      <div
+        className={`max-w-[80%] rounded-lg p-4 ${
+          isBot
+            ? 'bg-white text-gray-800 shadow-sm'
+            : 'bg-blue-600 text-white'
+        }`}
+      >
         <div
-          className={`max-w-[80%] rounded-lg p-4 ${
-            isBot
-              ? 'bg-white text-gray-800 shadow-sm'
-              : 'bg-blue-600 text-white'
-          }`}
-        >
-          <div
-            className="prose max-w-none"
-            dangerouslySetInnerHTML={{ __html: formattedText }}
-          />
-        </div>
+          className="prose max-w-none"
+          dangerouslySetInnerHTML={{ __html: formattedText }}
+        />
       </div>
-    );
-  };
+    </div>
+  );
+};
 
-  const renderHistorySection = (period: keyof ChatHistory, title: string) => {
-    const filteredChats = history[currentSection][period].filter(chat =>
-      !searchTerm ||
-      chat.messages.some(msg =>
-        msg.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        msg.response.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    );
+const renderHistorySection = (period: keyof ChatHistory, title: string) => {
+  const filteredChats = history[currentSection][period].filter(chat =>
+    !searchTerm ||
+    chat.messages.some(msg =>
+      msg.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      msg.response.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  );
 
-    if (filteredChats.length === 0) return null;
+  if (filteredChats.length === 0) return null;
 
     return (
       <div>
