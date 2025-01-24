@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Scale, BookOpen, MessageCircle, Search, Send } from 'lucide-react';
 import { marked } from 'marked';
+import useSSE from './hooks/useSSE';
 
 const API_BASE_URL = 'https://chatbot-u30628.vm.elestio.app/';
 
@@ -69,6 +70,26 @@ function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const botResponseRef = useRef<string>('');
 
+  const SSE_URL = `${API_BASE_URL}events`;
+  const { data: sseData, error: sseError } = useSSE(SSE_URL);
+
+  // Add new state for SSE notifications
+  const [notifications, setNotifications] = useState<string[]>([]);
+  
+  // Handle SSE data
+  useEffect(() => {
+    if (sseData) {
+      setNotifications(prev => [...prev, sseData]);
+    }
+  }, [sseData]);
+  
+  // Handle SSE errors
+  useEffect(() => {
+    if (sseError) {
+      console.error('SSE Error:', sseError);
+    }
+  }, [sseError]);
+  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
