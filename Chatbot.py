@@ -7,6 +7,7 @@ from openai import OpenAI
 import logging
 import traceback
 import json
+import time
 
 # Load environment variables
 load_dotenv()
@@ -92,8 +93,8 @@ def get_deepseek_stream(user_query, section):
             for chunk in response:
                 content = chunk.choices[0].delta.content
                 if content:
-                    # Remove 'data: ' prefix and send pure JSON
-                    yield f"{json.dumps({'content': content})}\n"  # Single newline
+                    time.sleep(0.1)  # 100ms delay per chunk
+                    yield f"{json.dumps({'content': content})}\n"
             yield json.dumps({"status": "complete"}) + "\n"  # Final marker
             
         except Exception as e:
