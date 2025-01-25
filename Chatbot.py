@@ -11,7 +11,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com"
 )
 
-@app.route('/chat', methods=['POST'])
+@app.route('/api/chat', methods=['POST'])
 def chat():
     try:
         data = request.get_json()
