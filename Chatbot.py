@@ -85,20 +85,20 @@ def get_deepseek_stream(user_query, section):
                     {"role": "system", "content": system_messages[section]},
                     {"role": "user", "content": user_query},
                 ],
-                max_tokens=1024,
-                temperature=0.7,
+                max_tokens=8192,
+                temperature=0.3,
                 stream=True
             )
 
             for chunk in response:
                 content = chunk.choices[0].delta.content
                 if content:
-                    time.sleep(0.1)  # 100ms delay per chunk
-                    yield f"{json.dumps({'content': content})}\n"
-            yield json.dumps({"status": "complete"}) + "\n"  # Final marker
+                    yield f"data: {json.dumps({'content': content})}\n\n"  # Proper SSE format
+            yield "data: [DONE]\n\n"  # Proper termination
             
         except Exception as e:
-            yield json.dumps({'error': str(e)}) + "\n"
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"  # Error in SSE format
+            yield "data: [DONE]\n\n"
     return stream
 
 @app.route('/chat', methods=['POST'])
@@ -146,7 +146,14 @@ def chat():
         })
 
         # Return streaming response
-        return Response(response_stream, content_type='text/event-stream')
+        return Response(
+            response_stream,
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            }
+        )
 
     except Exception as e:
         logging.error(f"Error processing the chat request: {str(e)}")
