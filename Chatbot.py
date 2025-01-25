@@ -1,14 +1,17 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 import requests
 from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
+from openai import OpenAI 
 
 # Load environment variables
 load_dotenv()
 
-DEEPSEEK_API_KEY = "sk-802fe5996aa441199db50ff2c951a261"
-DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+client = OpenAI(
+    api_key="sk-802fe5996aa441199db50ff2c951a261",
+    base_url="https://api.deepseek.com"
+)
 
 # Separate storage for query history and chat titles for each section
 query_history = {
@@ -57,42 +60,13 @@ def generate_chat_title(queries):
 def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
-def get_deepseek_response(user_query, section):
-    # Customize system message based on section
-    system_messages = {
-        'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
-        'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
-        'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
-    }
-    
-    payload = {
-        "messages": [
-            {"role": "system", "content": system_messages[section]},
-            {"role": "user", "content": user_query}
-        ],
-        "model": "deepseek-chat",
-        "max_tokens": 2048,
-        "temperature": 0.7,
-        "stream": False
-    }
-    
-    headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
-    }
-    
-    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-    response_data = response.json()
-    return response_data['choices'][0]['message']['content']
-
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.json
     user_query = data.get('query')
     section = data.get('section', 'main')
     chat_id = data.get('chat_id')
-    messages = data.get('messages', [])  # Get conversation history
+    messages = data.get('messages', [])
 
     if not user_query:
         return jsonify({'error': 'No query provided'}), 400
