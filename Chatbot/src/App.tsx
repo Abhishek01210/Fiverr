@@ -122,86 +122,89 @@ function App() {
     }
   };
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!inputMessage.trim() || isProcessing) return;
-
-  const newMessage = { text: inputMessage, isBot: false };
-  setMessages(prev => ({
-    ...prev,
-    [currentSection]: [...prev[currentSection], newMessage]
-  }));
-  setInputMessage('');
-  setIsProcessing(true);
-  botResponseRef.current = '';
-
-  try {
-    const response = await fetch(`${API_BASE_URL}chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: inputMessage,
-        section: currentSection,
-        chat_id: currentChatId
-      })
-    });
-
-    if (!response.ok) {
-      // Handle SSE errors (DO NOT use response.json())
-      const errorText = await response.text();
-      throw new Error(`HTTP error: ${response.status} - ${errorText}`);
-    }
-
-    // Create a temporary bot message
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputMessage.trim() || isProcessing) return;
+  
+    const newMessage = { text: inputMessage, isBot: false };
     setMessages(prev => ({
       ...prev,
-      [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
+      [currentSection]: [...prev[currentSection], newMessage]
     }));
-    
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+    setInputMessage('');
+    setIsProcessing(true);
   
-    while (true) {
-      const { done, value } = await reader?.read() || {};
-      if (done) break;
+    try {
+      const response = await fetch(`${API_BASE_URL}chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: inputMessage,
+          section: currentSection,
+          chat_id: currentChatId
+        })
+      });
   
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
   
-      for (const line of lines) {
-        if (line.trim() === '') continue;
+      // Create initial bot message
+      setMessages(prev => ({
+        ...prev,
+        [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
+      }));
   
-        try {
-          const data = JSON.parse(line.trim());
-          
-          if (data.error) throw new Error(data.error);
-          
-          if (data.content) {
-            // Force UI update
-            setTimeout(() => {
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+  
+      while (true) {
+        const { done, value } = await reader!.read();
+        if (done) break;
+  
+        buffer += decoder.decode(value);
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+  
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+  
+          const jsonData = line.replace('data: ', '');
+          if (jsonData === '[DONE]') break;
+  
+          try {
+            const data = JSON.parse(jsonData);
+            
+            if (data.error) {
+              throw new Error(data.error);
+            }
+  
+            if (data.content) {
               setMessages(prev => {
                 const sectionMessages = [...prev[currentSection]];
                 const lastMessage = sectionMessages[sectionMessages.length - 1];
-                botResponseRef.current += data.content;
                 
                 if (lastMessage?.isBot) {
                   sectionMessages[sectionMessages.length - 1] = {
-                    text: botResponseRef.current,
+                    text: lastMessage.text + data.content,
                     isBot: true
                   };
                 }
                 return { ...prev, [currentSection]: sectionMessages };
               });
-            }, 0);
+            }
+          } catch (e) {
+            console.error('Parsing error:', e);
           }
-        } catch (error) {
-          console.error('Stream error:', error);
         }
       }
-    }
-  };
+    } catch (error) {
+      setMessages(prev => ({
+        ...prev,
+        [currentSection]: [
+          ...prev[currentSection],
+          { text: `Error: ${(error as Error).message}`, isBot: true }
+        ]
+      }));
     } finally {
       setIsProcessing(false);
     }
