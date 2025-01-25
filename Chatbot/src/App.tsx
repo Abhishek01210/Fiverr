@@ -157,55 +157,51 @@ const handleSubmit = async (e: React.FormEvent) => {
       ...prev,
       [currentSection]: [...prev[currentSection], { text: '', isBot: true }]
     }));
-
+    
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
-    let accumulatedResponse = '';
-
+    let buffer = '';
+  
     while (true) {
       const { done, value } = await reader?.read() || {};
       if (done) break;
   
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n').filter(line => line.trim() !== '');
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
   
       for (const line of lines) {
+        if (line.trim() === '') continue;
+  
         try {
-              const data = JSON.parse(line.trim());
-              
-              if (data.status === 'complete') break;
-              if (data.error) throw new Error(data.error);
+          const data = JSON.parse(line.trim());
           
-              if (data.content) {
-                setMessages(prev => {
-                  const sectionMessages = [...prev[currentSection]];
-                  const lastMessage = sectionMessages[sectionMessages.length - 1];
-                  botResponseRef.current += data.content;
-                  
-                  if (lastMessage?.isBot) {
-                    sectionMessages[sectionMessages.length - 1] = {
-                      text: botResponseRef.current,
-                      isBot: true
-                    };
-                  }
-                  return { ...prev, [currentSection]: sectionMessages };
-                });
-              }
-            } catch (error) {
-              console.error('JSON parse error:', error);
-            }
+          if (data.error) throw new Error(data.error);
+          
+          if (data.content) {
+            // Force UI update
+            setTimeout(() => {
+              setMessages(prev => {
+                const sectionMessages = [...prev[currentSection]];
+                const lastMessage = sectionMessages[sectionMessages.length - 1];
+                botResponseRef.current += data.content;
+                
+                if (lastMessage?.isBot) {
+                  sectionMessages[sectionMessages.length - 1] = {
+                    text: botResponseRef.current,
+                    isBot: true
+                  };
+                }
+                return { ...prev, [currentSection]: sectionMessages };
+              });
+            }, 0);
           }
+        } catch (error) {
+          console.error('Stream error:', error);
         }
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      setMessages(prev => ({
-        ...prev,
-        [currentSection]: [...prev[currentSection], { 
-          text: `Error: ${errorMessage}`, 
-          isBot: true 
-        }]
-      }));
+    }
+  };
     } finally {
       setIsProcessing(false);
     }
