@@ -5,8 +5,8 @@ import { marked } from 'marked';
 const API_BASE_URL = 'https://chatbot-u30628.vm.elestio.app/';
 
 interface Message {
-  role: 'user' | 'assistant';
-  content: string;
+  text: string;
+  isBot: boolean;
 }
 
 interface ChatHistory {
@@ -47,9 +47,9 @@ const sectionIcons = {
 function App() {
   const [currentSection, setCurrentSection] = useState<Section>('main');
   const [messages, setMessages] = useState<Record<Section, Message[]>>({
-    main: [{ role: 'assistant', content: "How can I help you today?" }],
-    for_against: [{ role: 'assistant', content: "How can I help you today?" }],
-    bare_acts: [{ role: 'assistant', content: "How can I help you today?" }]
+    main: [{ text: "How can I help you today?", isBot: true }],
+    for_against: [{ text: "How can I help you today?", isBot: true }],
+    bare_acts: [{ text: "How can I help you today?", isBot: true }]
   });
   const [inputMessage, setInputMessage] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -72,46 +72,14 @@ function App() {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-  
+
   useEffect(() => {
     scrollToBottom();
-  }, [messages[currentSection]]); // Add section-specific dependency
+  }, [messages]);
 
   useEffect(() => {
     sections.forEach(loadChatHistory);
   }, []);
-
-  useEffect(() => {
-  marked.setOptions({
-    breaks: true,
-    sanitize: true
-  });
-}, []);
-
-  const loadChatHistory = async (section: Section) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}history/${section}`);
-      const data = await response.json();
-      setHistory(prev => ({
-        ...prev,
-        [section]: data
-      }));
-    } catch (error) {
-      console.error('Error loading chat history:', error);
-    }
-  };
-
-  const handleNewChat = (section: Section) => {
-    setCurrentChatId(null);
-    setActiveSessions(prev => ({
-      ...prev,
-      [section]: null
-    }));
-    setMessages(prev => ({
-      ...prev,
-      [section]: [{ text: "How can I help you today?", isBot: true }]
-    }));
-  };
 
   const switchSection = (section: Section) => {
     setCurrentSection(section);
@@ -122,19 +90,19 @@ function App() {
     }
   };
 
-  // Update handleSubmit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim() || isProcessing) return;
-  
-    const userMessage = { role: 'user' as const, content: inputMessage };
+    if (!inputMessage.trim()) return;
+
+    const newMessage = { text: inputMessage, isBot: false };
     setMessages(prev => ({
       ...prev,
-      [currentSection]: [...prev[currentSection], userMessage]
+      [currentSection]: [...prev[currentSection], newMessage]
     }));
     setInputMessage('');
     setIsProcessing(true);
-  
+    botResponseRef.current = '';
+
     try {
       const response = await fetch(`${API_BASE_URL}chat`, {
         method: 'POST',
@@ -145,148 +113,72 @@ function App() {
           chat_id: currentChatId
         })
       });
-  
-      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-  
-      // Add initial assistant message
-      setMessages(prev => ({
-        ...prev,
-        [currentSection]: [...prev[currentSection], { role: 'assistant', content: '' }]
-      }));
-  
+
+      if (!response.ok) throw new Error('Network response was not ok');
+      
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
-  
+
       while (true) {
-        const { done, value } = await reader!.read();
+        const { done, value } = await reader?.read() || {};
+        
         if (done) break;
-  
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-  
-        for (const line of lines) {
-          if (line.trim() === '') continue;
-          
-          if (line.startsWith('data: ')) {
-            const jsonData = line.replace('data: ', '');
-            if (jsonData === '[DONE]') break;
-  
-            try {
-              const data = JSON.parse(jsonData);
-              
-              if (data.error) throw new Error(data.error);
-  
-              if (data.content) {
-                setMessages(prev => {
-                  const sectionMessages = [...prev[currentSection]];
-                  const lastMessage = sectionMessages[sectionMessages.length - 1];
-                  
-                  if (lastMessage?.role === 'assistant') {
-                    sectionMessages[sectionMessages.length - 1] = {
-                      ...lastMessage,
-                      content: lastMessage.content + data.content
-                    };
-                  }
-                  
-                  return {
-                    ...prev,
-                    [currentSection]: sectionMessages
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        
+        lines.forEach(line => {
+          try {
+            const jsonData = JSON.parse(line);
+            
+            if (jsonData.content) {
+              botResponseRef.current += jsonData.content;
+              setMessages(prev => {
+                const messages = [...prev[currentSection]];
+                const lastMessageIndex = messages.length - 1;
+                
+                if (lastMessageIndex >= 0 && messages[lastMessageIndex].isBot) {
+                  messages[lastMessageIndex] = { 
+                    text: botResponseRef.current, 
+                    isBot: true 
                   };
-                });
-              }
-            } catch (e) {
-              console.error('Parsing error:', e);
+                } else {
+                  messages.push({ 
+                    text: botResponseRef.current, 
+                    isBot: true 
+                  });
+                }
+                
+                return {
+                  ...prev,
+                  [currentSection]: messages
+                };
+              });
             }
+            
+            if (jsonData.chat_id) {
+              setCurrentChatId(jsonData.chat_id);
+              setActiveSessions(prev => ({
+                ...prev,
+                [currentSection]: jsonData.chat_id
+              }));
+            }
+          } catch (parseError) {
+            console.error('Error parsing chunk:', parseError);
           }
-        }
+        });
       }
     } catch (error) {
+      console.error('Error:', error);
       setMessages(prev => ({
         ...prev,
-        [currentSection]: [
-          ...prev[currentSection],
-          { role: 'assistant', content: `Error: ${(error as Error).message}` }
-        ]
+        [currentSection]: [...prev[currentSection], { text: "Sorry, I encountered an error processing your request.", isBot: true }]
       }));
     } finally {
       setIsProcessing(false);
     }
   };
-    
-  // Update renderMessage
-  const renderMessage = (message: Message) => {
-    const isBot = message.role === 'assistant';
-    
-    try {
-      const formattedText = marked.parse(message.content);
-      return (
-        <div className={`flex ${isBot ? 'justify-start' : 'justify-end'} mb-4`}>
-          <div className={`max-w-[80%] rounded-lg p-4 ${
-            isBot ? 'bg-white text-gray-800 shadow-sm' : 'bg-blue-600 text-white'
-          }`}>
-            <div 
-              className="prose max-w-none"
-              dangerouslySetInnerHTML={{ __html: formattedText }}
-            />
-          </div>
-          {isBot ? (
-            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
-              <MessageSquare className="w-5 h-5 text-white" />
-            </div>
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-gray-500 flex items-center justify-center">
-              <User className="w-5 h-5 text-white" />
-            </div>
-          )}
-        </div>
-      );
-    } catch (e) {
-      return (
-        <div className={`flex ${isBot ? 'justify-start' : 'justify-end'} mb-4`}>
-          <div className={`max-w-[80%] rounded-lg p-4 ${
-            isBot ? 'bg-red-50 text-red-600' : 'bg-blue-600 text-white'
-          }`}>
-            Failed to render message: {message.content}
-          </div>
-        </div>
-      );
-    }
-  };
-
-  const renderHistorySection = (period: keyof ChatHistory, title: string) => {
-    const filteredChats = history[currentSection][period].filter(chat =>
-      !searchTerm ||
-      chat.messages.some(msg =>
-        msg.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        msg.response.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    );
-
-    if (filteredChats.length === 0) return null;
-
-    return (
-      <div>
-        <h3 className="text-xs font-semibold text-gray-500 mb-2">{title}</h3>
-        <div className="space-y-1">
-          {filteredChats.map((chat, index) => (
-            <button
-              key={index}
-              onClick={() => {
-                // Handle chat selection
-              }}
-              className="w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-100 transition-colors"
-            >
-              {chat.title || "New Chat"}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  return (
+  
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
@@ -308,8 +200,8 @@ function App() {
                     onClick={() => switchSection(section)}
                     className={`w-full text-left px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
                       currentSection === section
-                        ? 'bg-gray-100'
-                        : 'hover:bg-gray-50'
+                        ? 'tab-active'
+                        : 'hover:bg-gray-100'
                     }`}
                   >
                     <Icon className="w-5 h-5" />
@@ -339,8 +231,8 @@ function App() {
         <div className="px-4 mt-4 flex-1 overflow-y-auto space-y-4">
           {renderHistorySection('today', 'Today')}
           {renderHistorySection('yesterday', 'Yesterday')}
-          {renderHistorySection('seven_days', 'Last 7 Days')}
-          {renderHistorySection('thirty_days', 'Last 30 Days')}
+          {renderHistorySection('seven_days', '7 Days')}
+          {renderHistorySection('thirty_days', '30 Days')}
         </div>
       </div>
 
@@ -360,7 +252,7 @@ function App() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 messages-container">
           {messages[currentSection].map((message, index) => (
             <div key={index}>{renderMessage(message)}</div>
           ))}
@@ -375,13 +267,11 @@ function App() {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder="Type your message..."
-              disabled={isProcessing}
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed"
+              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500"
             />
             <button
               type="submit"
-              disabled={isProcessing || !inputMessage.trim()}
-              className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:bg-blue-400 disabled:cursor-not-allowed"
+              className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors flex items-center gap-2"
             >
               <Send className="w-5 h-5" />
               <span>Send</span>
