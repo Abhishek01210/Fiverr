@@ -11,7 +11,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com"
 )
 
-@app.route('/api/chat', methods=['POST'])
+@app.route('/chat', methods=['POST'])
 def chat():
     try:
         data = request.get_json()
@@ -36,6 +36,10 @@ def chat():
     except Exception as e:
         print(f'Error: {e}')
         return {"error": "Internal server error"}, 500
+
+@app.route("/")
+def home():
+    return "Hello, this is the chatbot!"
 
 if __name__ == '__main__':
     app.run(port=5000)
