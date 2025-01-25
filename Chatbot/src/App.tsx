@@ -106,7 +106,6 @@ const handleSubmit = async (e: React.FormEvent) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        messages,
         query: input,
         section: currentSection,
         chat_id: currentChatId,
@@ -130,11 +129,12 @@ const handleSubmit = async (e: React.FormEvent) => {
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
-          const data = line.slice(5);
-          if (data === '[DONE]') continue;
+          const data = line.slice(5).trim(); // Remove 'data: ' and trim whitespace
+
+          if (data === '[DONE]') continue; // Skip the '[DONE]' marker
 
           try {
-            const parsed = JSON.parse(data);
+            const parsed = JSON.parse(data); // Parse valid JSON chunks
             assistantMessage.content += parsed.content;
             setMessages(prev => [...prev.slice(0, -1), { ...assistantMessage }]);
           } catch (e) {
@@ -149,6 +149,7 @@ const handleSubmit = async (e: React.FormEvent) => {
     setIsLoading(false);
   }
 };
+
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
