@@ -93,8 +93,10 @@ def get_deepseek_stream(user_query, section):
             for chunk in response:
                 content = chunk.choices[0].delta.content
                 if content:
-                    yield f"data: {json.dumps({'content': content})}\n\n"  # Proper SSE format
-            yield "data: [DONE]\n\n"  # Proper termination
+                    # Add double newline after each event
+                    yield f"data: {json.dumps({'content': content})}\n\n"  
+            # Explicit end marker
+            yield "data: [DONE]\n\n"
             
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"  # Error in SSE format
@@ -151,7 +153,8 @@ def chat():
             mimetype='text/event-stream',
             headers={
                 'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive'
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no'  # Critical for some proxies
             }
         )
 
