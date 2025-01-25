@@ -29,6 +29,12 @@ chat_titles = {
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+# Update CORS configuration at the top of the file
+CORS(app, resources={
+    r"/chat": {"origins": ["http://localhost:5173", "https://your-frontend-domain.com"]},
+    r"/history/*": {"origins": "*"}
+})
+
 def generate_chat_title(queries):
     try:
         prompt = f"Create a short, descriptive title (max 5 words) for a chat session based on these queries:\n1. {queries[0]}\n2. {queries[1]}"
@@ -161,6 +167,13 @@ def clear_history(section):
         chat_titles[section].clear()
         return jsonify({'message': f'History cleared for {section}'}), 200
     return jsonify({'error': 'Invalid section'}), 400
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+    return response
 
 @app.route("/")
 def home():
