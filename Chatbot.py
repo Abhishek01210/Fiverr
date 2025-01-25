@@ -91,17 +91,18 @@ def get_deepseek_stream(user_query, section):
             )
 
             for chunk in response:
-                content = chunk.choices[0].delta.content
+                content = chunk.choices[0].delta.content or ""
                 if content:
-                    # Add double newline after each event
-                    yield f"data: {json.dumps({'content': content})}\n\n"  
-            # Explicit end marker
+                    # Ensure proper newline separation
+                    yield f"data: {json.dumps({'content': content})}\n\n"
+            # Finalize with explicit DONE marker
             yield "data: [DONE]\n\n"
-            
+
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"  # Error in SSE format
+            # Standardized error format
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
             yield "data: [DONE]\n\n"
-    return stream
+        return stream
 
 @app.route('/chat', methods=['POST'])
 def chat():
