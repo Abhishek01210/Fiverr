@@ -184,21 +184,24 @@ function App() {
             // In handleSubmit, modify the message update logic:
             if (data.content) {
               setMessages(prev => {
-                // Create a DEEP COPY of the state to avoid mutation
-                const updatedMessages = { ...prev };
-                const sectionMessages = [...updatedMessages[currentSection]];
-                const lastMessage = sectionMessages[sectionMessages.length - 1];
+                // Create DEEP CLONE of the state
+                const updatedState = JSON.parse(JSON.stringify(prev));
+                const sectionMessages = updatedState[currentSection];
                 
-                if (lastMessage?.isBot) {
-                  sectionMessages[sectionMessages.length - 1] = {
-                    text: lastMessage.text + data.content,
-                    isBot: true
-                  };
+                if (sectionMessages.length > 0) {
+                  const lastMessage = sectionMessages[sectionMessages.length - 1];
+                  if (lastMessage.isBot) {
+                    // Update existing bot message
+                    lastMessage.text += data.content;
+                  } else {
+                    // Create new bot message if needed
+                    sectionMessages.push({ text: data.content, isBot: true });
+                  }
                 }
                 
                 return {
-                  ...updatedMessages,
-                  [currentSection]: sectionMessages
+                  ...updatedState,
+                  [currentSection]: [...sectionMessages] // Force new array reference
                 };
               });
             }
