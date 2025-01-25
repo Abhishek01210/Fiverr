@@ -171,29 +171,28 @@ const handleSubmit = async (e: React.FormEvent) => {
   
       for (const line of lines) {
         try {
-          const data = JSON.parse(line.trim()); // Directly parse line
-          
-          if (data.status === 'complete') break;
-          if (data.error) throw new Error(data.error);
-          
-          if (data.content) {
-            setMessages(prev => {
-              const sectionMessages = [...prev[currentSection]];
-              const lastMessage = sectionMessages[sectionMessages.length - 1];
-              botResponseRef.current += data.content;
+              const data = JSON.parse(line.trim());
               
-              if (lastMessage?.isBot) {
-                sectionMessages[sectionMessages.length - 1] = {
-                  text: botResponseRef.current,
-                  isBot: true
-                };
+              if (data.status === 'complete') break;
+              if (data.error) throw new Error(data.error);
+          
+              if (data.content) {
+                setMessages(prev => {
+                  const sectionMessages = [...prev[currentSection]];
+                  const lastMessage = sectionMessages[sectionMessages.length - 1];
+                  botResponseRef.current += data.content;
+                  
+                  if (lastMessage?.isBot) {
+                    sectionMessages[sectionMessages.length - 1] = {
+                      text: botResponseRef.current,
+                      isBot: true
+                    };
+                  }
+                  return { ...prev, [currentSection]: sectionMessages };
+                });
               }
-              return { ...prev, [currentSection]: sectionMessages };
-            });
-          }
-            } catch (parseError) {
-              console.error('Error parsing SSE chunk:', parseError);
-              throw new Error('Invalid server response format');
+            } catch (error) {
+              console.error('JSON parse error:', error);
             }
           }
         }
