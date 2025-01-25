@@ -161,12 +161,15 @@ function App() {
         const { done, value } = await reader!.read();
         if (done) break;
   
-        buffer += decoder.decode(value);
+        buffer += decoder.decode(value, { stream: true }); // Keep incomplete chunks
         const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-  
+        
+        // Preserve incomplete lines for next iteration
+        buffer = lines.pop() || ''; 
+        
+        // Process complete lines only
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
+          if (line.trim() === '') continue;
   
           const jsonData = line.replace('data: ', '');
           if (jsonData === '[DONE]') break;
@@ -178,9 +181,12 @@ function App() {
               throw new Error(data.error);
             }
   
+            // In handleSubmit, modify the message update logic:
             if (data.content) {
               setMessages(prev => {
-                const sectionMessages = [...prev[currentSection]];
+                // Create a DEEP COPY of the state to avoid mutation
+                const updatedMessages = { ...prev };
+                const sectionMessages = [...updatedMessages[currentSection]];
                 const lastMessage = sectionMessages[sectionMessages.length - 1];
                 
                 if (lastMessage?.isBot) {
@@ -189,7 +195,11 @@ function App() {
                     isBot: true
                   };
                 }
-                return { ...prev, [currentSection]: sectionMessages };
+                
+                return {
+                  ...updatedMessages,
+                  [currentSection]: sectionMessages
+                };
               });
             }
           } catch (e) {
