@@ -179,6 +179,10 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
     return response
 
+@app.route('/chat', methods=['OPTIONS'])
+def handle_options():
+    return Response(status=200)
+
 @app.route("/")
 def home():
     return "Hello, this is the chatbot!"
