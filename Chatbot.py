@@ -3,15 +3,14 @@ import requests
 from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
-from openai import OpenAI 
+import json
+import re  # Add at the top with other imports
 
 # Load environment variables
 load_dotenv()
 
-client = OpenAI(
-    api_key="sk-802fe5996aa441199db50ff2c951a261",
-    base_url="https://api.deepseek.com"
-)
+DEEPSEEK_API_KEY = "sk-802fe5996aa441199db50ff2c951a261"
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
 # Separate storage for query history and chat titles for each section
 query_history = {
@@ -28,16 +27,6 @@ chat_titles = {
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
-
-# Allow specific origins (replace with your frontend URL)
-CORS(
-    app,
-    resources={
-        r"/chat": {"origins": "http://localhost:5173"},
-        r"/history/*": {"origins": "*"}
-    },
-    supports_credentials=True
-)
 
 def generate_chat_title(queries):
     try:
@@ -70,18 +59,74 @@ def generate_chat_title(queries):
 def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
+def stream_deepseek_response(user_query, section, chat_id):
+    system_messages = {
+        'main': "You are a helpful legal assistant, providing clear and accurate information about legal matters.",
+        'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
+        'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
+    }
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
+    }
+
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_messages[section]},
+            {"role": "user", "content": user_query}
+        ],
+        "model": "deepseek-chat",
+        "max_tokens": 8192,
+        "temperature": 0.7,
+        "stream": True  # Enable streaming
+    }
+
+    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
+    
+    full_response = []
+    for line in response.iter_lines():
+        if line:
+            decoded_line = line.decode('utf-8').strip()
+            if decoded_line.startswith('data: '):
+                json_str = decoded_line[6:]
+                if json_str == '[DONE]':  # Handle termination signal
+                    continue
+
+                try:
+                    data = json.loads(json_str)
+                    if 'choices' in data and data['choices'][0]['delta'].get('content'):
+                        chunk = data['choices'][0]['delta']['content']
+                        full_response.append(chunk)
+                        yield f"data: {json.dumps({'content': chunk, 'chat_id': chat_id})}\n\n"
+                except json.JSONDecodeError:
+                    print(f"Failed to parse JSON chunk: {json_str}")
+                    continue
+                    
+    # Send final completion marker after all chunks
+    yield "data: [DONE]\n\n"
+
+    # Store complete response in history
+    complete_response = ''.join(full_response)
+    query_history[section].append({
+        'chat_id': chat_id,
+        'query': user_query,
+        'response': complete_response,
+        'timestamp': datetime.now().isoformat()
+    })
+
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.json
     user_query = data.get('query')
     section = data.get('section', 'main')
     chat_id = data.get('chat_id')
-    messages = data.get('messages', [])
 
     if not user_query:
         return jsonify({'error': 'No query provided'}), 400
 
-    # Create new chat entry if needed
+    # Generate chat_id if new conversation
     if not chat_id:
         chat_id = get_chat_id()
         chat_titles[section][chat_id] = {
@@ -90,34 +135,18 @@ def chat():
             'timestamp': datetime.now().isoformat()
         }
 
-    # Add system message based on section
-    system_messages = {
-        'main': "You are a helpful legal assistant",
-        'for_against': "You are a legal analyst specializing in balanced arguments",
-        'bare_acts': "You are a legal expert explaining legal acts"
-    }
-    
-    messages_with_system = [{"role": "system", "content": system_messages[section]}] + messages
+    # Store query immediately
+    chat_titles[section][chat_id]['queries'].append(user_query)
 
-    def generate():
-        try:
-            stream = client.chat.completions.create(
-                model="deepseek-chat",
-                messages=messages_with_system,
-                stream=True,
-                max_tokens=2048,
-                temperature=0.7
-            )
-            for chunk in stream:
-                content = chunk.choices[0].delta.content or ""
-                if content:
-                    yield f"data: {json.dumps({'content': content})}\n\n"
-            yield "data: [DONE]\n\n"
-        except Exception as e:
-            print(f"Error: {e}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    # Generate title after second query
+    if len(chat_titles[section][chat_id]['queries']) == 2:
+        title = generate_chat_title(chat_titles[section][chat_id]['queries'])
+        chat_titles[section][chat_id]['title'] = title
 
-    return Response(generate(), mimetype='text/event-stream')
+    return Response(
+        stream_deepseek_response(user_query, section, chat_id),
+        mimetype='text/event-stream'
+    )
 
 @app.route('/history/<section>', methods=['GET'])
 def get_history(section):
@@ -172,16 +201,29 @@ def clear_history(section):
         return jsonify({'message': f'History cleared for {section}'}), 200
     return jsonify({'error': 'Invalid section'}), 400
 
-@app.after_request
-def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "http://localhost:5173"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
-    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-    return response
+@app.route('/autocomplete', methods=['GET'])
+def autocomplete():
+    search_term = request.args.get('term', '').lower()
+    section = request.args.get('section', 'main')
+    suggestions = []
 
-@app.route('/chat', methods=['OPTIONS'])
-def handle_options():
-    return Response(status=200)
+    if section in query_history:
+        words = set()
+        # Extract words using regex to ignore punctuation
+        word_pattern = re.compile(r'\b\w+\b')
+        
+        for entry in query_history[section]:
+            # Process queries
+            query_words = word_pattern.findall(entry['query'].lower())
+            # Process responses
+            response_words = word_pattern.findall(entry['response'].lower())
+            words.update(query_words + response_words)
+        
+        # Get matching suggestions
+        suggestions = [word for word in words if word.startswith(search_term)]
+        suggestions = sorted(suggestions)[:5]  # Return top 5 sorted results
+
+    return jsonify(suggestions)
 
 @app.route("/")
 def home():
