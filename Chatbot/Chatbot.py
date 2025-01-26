@@ -4,12 +4,16 @@ from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
 import json
-import re  # Add at the top with other imports
+import re
+import os
 
 # Load environment variables
 load_dotenv()
 
-DEEPSEEK_API_KEY = "sk-802fe5996aa441199db50ff2c951a261"
+# Replace all instances of DEEPSEEK_API_KEY with:
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+if not DEEPSEEK_API_KEY:
+    raise ValueError("No DEEPSEEK_API_KEY found in environment variables")
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
 # Separate storage for query history and chat titles for each section
