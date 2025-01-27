@@ -122,6 +122,19 @@ def stream_deepseek_response(user_query, section, chat_id):
 
 @app.route('/chat', methods=['POST'])
 def chat():
+    # In the /chat route handler, before appending the user_query:
+
+    # Ensure the section exists in chat_titles
+    if section not in chat_titles:
+        chat_titles[section] = {}
+    
+    # Ensure the chat_id exists within the section
+    if chat_id not in chat_titles[section]:
+        chat_titles[section][chat_id] = {'queries': []}
+    
+    # Now safely append the query
+    chat_titles[section][chat_id]['queries'].append(user_query)
+
     data = request.json
     user_query = data.get('query')
     section = data.get('section', 'main')
