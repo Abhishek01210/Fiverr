@@ -4,16 +4,12 @@ from dotenv import load_dotenv
 from flask_cors import CORS
 from datetime import datetime, timedelta
 import json
-import re
-import os
+import re  # Add at the top with other imports
 
 # Load environment variables
 load_dotenv()
 
-# Replace all instances of DEEPSEEK_API_KEY with:
-DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
-if not DEEPSEEK_API_KEY:
-    raise ValueError("No DEEPSEEK_API_KEY found in environment variables")
+DEEPSEEK_API_KEY = "sk-802fe5996aa441199db50ff2c951a261"
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
 # Separate storage for query history and chat titles for each section
@@ -122,19 +118,6 @@ def stream_deepseek_response(user_query, section, chat_id):
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    # In the /chat route handler, before appending the user_query:
-
-    # Ensure the section exists in chat_titles
-    if section not in chat_titles:
-        chat_titles[section] = {}
-    
-    # Ensure the chat_id exists within the section
-    if chat_id not in chat_titles[section]:
-        chat_titles[section][chat_id] = {'queries': []}
-    
-    # Now safely append the query
-    chat_titles[section][chat_id]['queries'].append(user_query)
-
     data = request.json
     user_query = data.get('query')
     section = data.get('section', 'main')
