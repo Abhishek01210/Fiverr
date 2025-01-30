@@ -248,18 +248,25 @@ def process_judgment_data(raw_data):
 
 @app.route('/judgments', methods=['GET'])
 def get_judgments():
-    """Endpoint to retrieve processed judgments."""
+    """Endpoint to retrieve processed judgments with pagination."""
     global PROCESSED_JUDGMENTS
     
     try:
+        offset = int(request.args.get('offset', 0))
+        limit = int(request.args.get('limit', 10))
+        
         if not PROCESSED_JUDGMENTS:
             logger.warning("No judgments available, attempting to reload")
             PROCESSED_JUDGMENTS = load_judgments_from_s3()
             
+        total = len(PROCESSED_JUDGMENTS)
+        paginated_data = PROCESSED_JUDGMENTS[offset:offset+limit]
+        
         return jsonify({
             "status": "success",
-            "count": len(PROCESSED_JUDGMENTS),
-            "data": PROCESSED_JUDGMENTS
+            "count": len(paginated_data),
+            "total": total,
+            "data": paginated_data
         })
     except Exception as e:
         logger.error(f"Error retrieving judgments: {str(e)}")
