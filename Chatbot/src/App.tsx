@@ -41,6 +41,7 @@ interface Judgment {
 interface JudgmentsResponse {
   status: string;
   count: number;
+  total: number;  // Add this
   data: Judgment[];
 }
 
@@ -90,22 +91,57 @@ function App() {
   const [messageSearchTerm, setMessageSearchTerm] = useState('');
   const [judgmentSearchTerm, setJudgmentSearchTerm] = useState('');
 
+  const [judgmentOffset, setJudgmentOffset] = useState(0);
+  const [hasMoreJudgments, setHasMoreJudgments] = useState(true);
+  const [isLoadingMoreJudgments, setIsLoadingMoreJudgments] = useState(false);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const fetchJudgments = async () => {
+  useEffect(() => {
+    if (currentSection !== 'for_against' || !hasMoreJudgments) return;
+  
+    const container = messagesContainerRef.current;
+    if (!container) return;
+  
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollHeight - (scrollTop + clientHeight) < 100 && !isLoadingMoreJudgments) {
+        fetchJudgments(true);
+      }
+    };
+  
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [currentSection, hasMoreJudgments, isLoadingMoreJudgments]);
+  
+  useEffect(() => {
+    if (currentSection === 'for_against') {
+      setJudgmentOffset(0);
+      setJudgments([]);
+      fetchJudgments();
+    }
+  }, [currentSection]);
+
+  const fetchJudgments = async (loadMore = false) => {
     try {
-      setIsLoadingJudgments(true);
-      const response = await fetch(`${API_BASE_URL}judgments`);
-      
-      // Update fetchJudgments
+      if (!loadMore) setIsLoadingJudgments(true);
+      else setIsLoadingMoreJudgments(true);
+  
+      const response = await fetch(
+        `${API_BASE_URL}judgments?offset=${judgmentOffset}&limit=10&search=${encodeURIComponent(judgmentSearchTerm)}`
+      );
       const data: JudgmentsResponse = await response.json();
-      setJudgments(data.data);
+      
+      setJudgments(prev => loadMore ? [...prev, ...data.data] : data.data);
+      setHasMoreJudgments(data.data.length > 0 && (judgmentOffset + data.data.length) < data.total);
+      if (loadMore) setJudgmentOffset(prev => prev + 10);
     } catch (error) {
       console.error('Error loading judgments:', error);
     } finally {
       setIsLoadingJudgments(false);
+      setIsLoadingMoreJudgments(false);
     }
   };
 
@@ -128,6 +164,13 @@ function App() {
       setIsLoadingHistory(false);
     }
   };
+
+  // Use in JSX to show loading state
+  {isLoadingHistory && (
+    <div className="p-4 text-center text-gray-500">
+      Loading chat history...
+    </div>
+  )}
 
   const renderMessage = (message: Message) => (
     <div className={`flex ${message.isBot ? 'justify-start' : 'justify-end'} mb-5`}>
@@ -174,7 +217,7 @@ function App() {
     return (
       <div className="space-y-4">
         {isLoadingJudgments ? (
-          <div className="flex items-center justify-center py-8">
+          <div className="flex items-center justify-center py-4">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
         ) : filteredJudgments.length === 0 ? (
@@ -212,6 +255,11 @@ function App() {
             </div>
           ))
         )}
+          {isLoadingMoreJudgments && (
+    <div className="flex items-center justify-center py-4">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+    </div>
+  )}
       </div>
     );
   }; 
@@ -253,10 +301,9 @@ function App() {
 
   useEffect(() => {
     if (currentSection === 'for_against' && judgments.length === 0) {
-      console.log('Fetching judgments...');
       fetchJudgments();
     }
-  }, [currentSection, judgments.length]); // Fixed dependencies
+  }, [currentSection, judgments.length]); // Add missing dependency
 
   // Update the existing switchSection function in your component
   const switchSection = (section: Section) => {
