@@ -69,12 +69,3 @@
   background-color: #EBF5FF;
   border-left: 4px solid #3B82F6;
 }
-
-/* Add to index.css */
-.transition-all {
-  transition: all 0.3s ease-in-out;
-}
-
-.rotate-180 {
-  transform: rotate(180deg);
-}
