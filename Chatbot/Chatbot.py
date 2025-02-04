@@ -11,6 +11,10 @@ import os
 import logging
 import threading
 from typing import List, Dict, Any
+from sklearn.feature_extraction.text import TfidfVectorizer
+import nltk
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import wordnet
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,6 +51,10 @@ s3 = boto3.client(
     aws_access_key_id=AWS_ACCESS_KEY,
     aws_secret_access_key=AWS_SECRET_KEY
 )
+
+nltk.download('wordnet')
+nltk.download('omw-1.4')
+lemmatizer = WordNetLemmatizer()
 
 class JudgmentManager:
     _instance = None
@@ -96,13 +104,8 @@ class JudgmentManager:
             try:
                 if not JudgmentManager.validate_judgment_data(judgment):
                     continue
-                    
-                summary = judgment["JudgmentSummary"]
-                processed.append({
-                    "id": summary.get("DocumentID", ""),
-                    "name": summary.get("JudgmentName", "Untitled"),
-                    "intro": summary.get("Brief", {}).get("Introduction", "")
-                })
+                # Append the entire judgment if valid
+                processed.append(judgment)
             except Exception as e:
                 logger.error(f"Skipping invalid judgment: {str(e)}")
                 continue
@@ -114,27 +117,56 @@ class JudgmentManager:
             self.load_judgments()
         return self._judgments
 
+def expand_query(query: str) -> List[str]:
+    """Expand query with synonyms and lemmas"""
+    tokens = query.lower().split()
+    expanded = set()
+    
+    for token in tokens:
+        # Add original
+        expanded.add(token)
+        
+        # Add lemma
+        lemma = lemmatizer.lemmatize(token)
+        expanded.add(lemma)
+        
+        # Add synonyms
+        for syn in wordnet.synsets(token):
+            for lemma in syn.lemmas():
+                expanded.add(lemma.name().lower())
+                
+    return list(expanded)
+
 def find_relevant_judgments(query: str) -> List[Dict[str, str]]:
     judgment_manager = JudgmentManager.get_instance()
-    query_lower = query.lower()
-    relevant = []
+    expanded_terms = expand_query(query)
     
-    for judgment in judgment_manager.judgments:
-        search_text = ' '.join([
-            judgment["name"],
-            judgment["intro"]
-        ]).lower()
-        
-        if query_lower in search_text:
-            relevant.append({
-                "name": judgment["name"],
-                "intro": judgment["intro"]
-            })
-            if len(relevant) >= 3:
-                break
-                
-    logger.info(f"Found {len(relevant)} relevant judgments for query: {query}")
-    return relevant
+    # Create TF-IDF matrix using nested fields from the judgment data
+    documents = [
+        f"{j['JudgmentSummary']['JudgmentName']} {j['JudgmentSummary']['Brief']['Introduction']}" 
+        for j in judgment_manager.judgments
+    ]
+    
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = vectorizer.fit_transform(documents)
+    query_vec = vectorizer.transform([' '.join(expanded_terms)])
+    
+    # Calculate cosine similarities
+    similarities = (tfidf_matrix * query_vec.T).toarray().flatten()
+    
+    # Get top matches
+    ranked = sorted(
+        zip(similarities, judgment_manager.judgments),
+        key=lambda x: x[0],
+        reverse=True
+    )
+    
+    return [{
+        'name': j['JudgmentSummary']['JudgmentName'],
+        'intro': j['JudgmentSummary']['Brief']['Introduction'],
+        'score': float(score),
+        'matched_terms': list(set(expanded_terms) & set(j['JudgmentSummary']['Brief']['Introduction'].lower().split()))
+    } for score, j in ranked[:5] if score > 0]
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -358,11 +390,13 @@ def home():
 @app.route('/debug/judgments')
 def debug_judgments():
     judgment_manager = JudgmentManager.get_instance()
-    judgments = judgment_manager.judgments  # This will load if not already loaded
+    test_query = request.args.get('q', 'medical termination')
+    
     return jsonify({
-        'count': len(judgments),
-        'structure_sample': judgments[0] if judgments else None,
-        'relevant_sample': find_relevant_judgments("Medical Termination of Pregnancy Act")[:2]
+        "total_judgments": len(judgment_manager.judgments),
+        "test_query": test_query,
+        "expanded_terms": expand_query(test_query),
+        "top_matches": find_relevant_judgments(test_query)
     })
 
 if __name__ == '__main__':
