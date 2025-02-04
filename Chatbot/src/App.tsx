@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Scale, BookOpen, MessageCircle, Search, Send } from 'lucide-react';
 import { marked } from 'marked';
 
-const API_BASE_URL = 'https://chatbot-python-u30628.vm.elestio.app/';
+const API_BASE_URL = 'http://localhost:5000/';
 
 interface Message {
   text: string;
