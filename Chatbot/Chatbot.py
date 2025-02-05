@@ -19,12 +19,6 @@ from nltk.corpus import wordnet
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-log_format streaming '$remote_addr - $remote_user [$time_local] '
-                     '"$request" $status $body_bytes_sent '
-                     '"$http_referer" "$http_user_agent" '
-                     '[$proxy_host] $upstream_response_time';
-access_log /var/log/nginx/streaming.log streaming;
-
 # Load environment variables
 load_dotenv()
 
