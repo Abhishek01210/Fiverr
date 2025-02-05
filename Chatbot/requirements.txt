@@ -6,3 +6,4 @@ boto3
 scikit-learn
 nltk
 botocore
+gunicorn[gevent]
