@@ -15,6 +15,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import nltk
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
+from openai import OpenAI
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,8 +23,8 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-DEEPSEEK_API_KEY = "sk-802fe5996aa441199db50ff2c951a261"
-DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+client = OpenAI()
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY').strip('"')
 
 # Separate storage for query history and chat titles for each section
 query_history = {
@@ -175,30 +176,21 @@ def generate_chat_title(queries):
     try:
         prompt = f"Create a short, descriptive title (max 5 words) for a chat session based on these queries:\n1. {queries[0]}\n2. {queries[1]}"
         
-        payload = {
-            "messages": [
+        # Use OpenAI client instead of requests
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
                 {"role": "system", "content": "You are a helpful assistant that creates concise chat titles."},
                 {"role": "user", "content": prompt}
             ],
-            "model": "deepseek-chat",
-            "max_tokens": 20,
-            "temperature": 0.7,
-            "stream": False
-        }
-        
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
-        }
-        
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-        response_data = response.json()
-        return response_data['choices'][0]['message']['content'].strip()
+            max_tokens=20,
+            temperature=0.7
+        )
+        return completion.choices[0].message.content.strip()
     except Exception as e:
         print(f"Error generating title: {e}")
         return "New Chat"
-
+        
 def get_chat_id():
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
@@ -208,49 +200,29 @@ def stream_deepseek_response(user_query, section, chat_id):
         'for_against': "You are a legal analyst specializing in presenting balanced arguments for and against legal positions.",
         'bare_acts': "You are a legal expert focusing on explaining sections of legal acts and statutes in simple terms."
     }
-    
-    headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': f'Bearer {DEEPSEEK_API_KEY}'
-    }
 
-    payload = {
-        "messages": [
+    # Stream using OpenAI client
+    stream = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
             {"role": "system", "content": system_messages[section]},
             {"role": "user", "content": user_query}
         ],
-        "model": "deepseek-chat",
-        "max_tokens": 8192,
-        "temperature": 0.7,
-        "stream": True
-    }
+        max_tokens=8192,
+        temperature=0.7,
+        stream=True
+    )
 
-    response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, stream=True)
-    
     full_response = []
-    # Stream main response
-    for line in response.iter_lines():
-        if line:
-            decoded_line = line.decode('utf-8').strip()
-            if decoded_line.startswith('data: '):
-                json_str = decoded_line[6:]
-                if json_str == '[DONE]':
-                    continue
+    # Stream OpenAI response
+    for chunk in stream:
+        if chunk.choices[0].delta.content is not None:
+            chunk_content = chunk.choices[0].delta.content
+            full_response.append(chunk_content)
+            yield f"data: {json.dumps({'content': chunk_content, 'chat_id': chat_id})}\n\n"
 
-                try:
-                    data = json.loads(json_str)
-                    if 'choices' in data and data['choices'][0]['delta'].get('content'):
-                        chunk = data['choices'][0]['delta']['content']
-                        full_response.append(chunk)
-                        yield f"data: {json.dumps({'content': chunk, 'chat_id': chat_id})}\n\n"
-                except json.JSONDecodeError:
-                    print(f"Failed to parse JSON chunk: {json_str}")
-                    continue
-
-    # Add judgments after main response
+    # Add judgments after main response (existing logic remains)
     judgment_text = ""
-    # Modified judgment handling
     if section == 'for_against':
         try:
             judgments = find_relevant_judgments(user_query)
@@ -258,14 +230,13 @@ def stream_deepseek_response(user_query, section, chat_id):
                 judgment_text = "\n\n**Relevant Judgments:**\n"
                 for idx, j in enumerate(judgments, 1):
                     judgment_text += f"{idx}. **{j['name']}**\n{j['intro']}\n\n"
-                
                 yield f"data: {json.dumps({'content': judgment_text, 'type': 'judgments', 'chat_id': chat_id})}\n\n"
         except Exception as e:
             logger.error(f"Judgment processing failed: {str(e)}")
-    # Send single DONE event after all content
+    
     yield "data: [DONE]\n\n"
 
-    # Store complete response
+    # Store complete response (existing logic remains)
     complete_response = ''.join(full_response)
     query_history[section].append({
         'chat_id': chat_id,
