@@ -1,0 +1,11 @@
+aiohttp
+fastapi
+google-auth
+gspread
+openai
+pydantic
+python-dotenv
+tenacity
+twilio
+uvicorn
+vapi-python
