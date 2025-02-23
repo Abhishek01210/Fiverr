@@ -9,3 +9,4 @@ tenacity
 twilio
 uvicorn
 vapi-python
+pyaudio
